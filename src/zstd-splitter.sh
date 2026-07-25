@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# zstd-splitter.sh 3.0
+# zstd-splitter.sh 4.0
 # Create a tar stream, compress it with a selectable engine, split it into
 # parts, join those parts, extract archives, and optionally enforce a strict
 # SHA-256 integrity manifest.
@@ -15,7 +15,7 @@ LC_ALL=C
 export LC_ALL
 
 PROGRAM_NAME=${0##*/}
-PROGRAM_VERSION=3.0
+PROGRAM_VERSION=4.0
 MANIFEST_FORMAT=1
 SUFFIX_LENGTH=6
 ACTION=
@@ -35,6 +35,59 @@ COMPRESS_PID=
 SPLIT_PID=
 EXTRACT_PID=
 LAST_ARCHIVE=
+
+FEATURE_LEVEL=40
+NETWORK_OPTIONS=
+NETWORK_CONFIG=
+REMOTE_DESTINATIONS=
+NETWORK_QUERY_MODE=
+NETWORK_TEMP_DIR=
+NETWORK_CONTROL_DIR=
+NETWORK_COUNTER=0
+SELF_PATH=
+LAST_PART_PREFIX=
+LAST_MANIFEST=
+NET_PROFILE=safe
+NET_TRANSPORT=sftp
+NET_RESUME=yes
+NET_ATOMIC=yes
+NET_REMOTE_VERIFY=all
+NET_REMOTE_EXTRACT=
+NET_RETRY=3
+NET_RETRY_DELAY=3
+NET_BACKOFF=linear
+NET_CONNECT_TIMEOUT=15
+NET_KEEPALIVE_INTERVAL=15
+NET_KEEPALIVE_COUNT=3
+NET_HOST_KEY_POLICY=strict
+NET_KNOWN_HOSTS=
+NET_IDENTITY=
+NET_PORT=
+NET_JUMP=
+NET_ADDRESS_FAMILY=any
+NET_BIND_INTERFACE=
+NET_BIND_ADDRESS=
+NET_SSH_COMPRESSION=no
+NET_CONTROL_MASTER=auto
+NET_CONTROL_PERSIST=60
+NET_JOBS=1
+NET_SFTP_BUFFER=32768
+NET_SFTP_REQUESTS=64
+NET_BANDWIDTH=0
+NET_STREAM_BLOCK=1048576
+NET_MTU_CHECK=off
+NET_MTU_REQUIRED=9000
+NET_TUNE=off
+NET_REMOTE_FSYNC=yes
+NET_CLEANUP=success
+NET_DRY_RUN=no
+NET_QUORUM=0
+NET_AUDIT_LOG=
+NET_GC_DAYS=7
+NET_RETAIN=all
+NET_LOCK=yes
+NET_ALLOW_UNVERIFIED=no
+
 
 print_error()
 {
@@ -70,62 +123,90 @@ usage()
 {
     cat <<EOF_USAGE
 Usage:
-  $PROGRAM_NAME -c -s SIZE [-e ENGINE] [-l LEVEL] [-T THREADS] [-i] [-f] SOURCE
+  $PROGRAM_NAME -c -s SIZE [-e ENGINE] [-l LEVEL] [-T THREADS] [-i] [-f]
+                [-R DESTINATION] [-O NAME=VALUE] SOURCE
   $PROGRAM_NAME -j [-i] [-m MANIFEST] [-f] PART
   $PROGRAM_NAME -x [-i] [-m MANIFEST] [-d DIRECTORY] [-f] INPUT
   $PROGRAM_NAME -v [-i] [-m MANIFEST] INPUT
+  $PROGRAM_NAME -P -i -R DESTINATION [-R DESTINATION ...] [-O NAME=VALUE] INPUT
+  $PROGRAM_NAME -G -i -R REMOTE_INPUT [-d DIRECTORY] [-O NAME=VALUE]
+  $PROGRAM_NAME -Q MODE -R DESTINATION [-O NAME=VALUE]
+  $PROGRAM_NAME -Y -i -R REMOTE_SOURCE -R DESTINATION [-R DESTINATION ...]
+                [-O NAME=VALUE]
   $PROGRAM_NAME -E
   $PROGRAM_NAME -h
   $PROGRAM_NAME
 
-Actions:
+Local actions:
   -c            Create a tar archive, compress it, and split it.
   -j            Join archive parts and verify the reconstructed stream.
   -x            Extract an archive, or join parts and then extract them.
   -v            Verify an archive or a set of parts without extracting it.
   -E            List supported compression engines.
 
-Options:
+Network actions:
+  -P            Push a local archive or part set through SSH/SFTP.
+  -G            Pull a remote archive or part set through SSH/SFTP.
+  -Q MODE       Run a network query: network, health, inventory, gc, or config.
+  -Y            Relay a strict part set between SSH hosts without storing its
+                payload locally. Only its manifest is stored temporarily.
+
+Network selection:
+  -R SPEC       Remote specification: [USER@]HOST:/absolute/path.
+                Repeatable for fan-out in version 4.2.
+  -O NAME=VALUE Set a network option. Repeatable.
+  -F FILE       Read network options from FILE (one NAME=VALUE per line).
+
+Common options:
   -e ENGINE     Compression engine used with -c. Default: zstd.
   -s SIZE       Maximum size of each part. Required with -c.
-                SIZE may be a positive byte count or use K, M, G, T, or P,
-                optionally followed by B or iB. Units are powers of 1024.
   -l LEVEL      Compression level. The accepted range depends on ENGINE.
   -T THREADS    Worker threads for zstd, xz, or lzma. Default: 0.
   -i            Enable strict SHA-256 integrity processing.
-                Compression creates NAME.tar.EXT.manifest.sha256.
-                Join, verify, and extract require and validate that manifest.
-  -m MANIFEST   Use an explicit strict-integrity manifest with -j, -x, or -v.
-  -d DIRECTORY  Extraction destination used with -x.
-                Default: NAME.extracted beside the reconstructed archive.
-  -f            Replace existing output without asking for confirmation.
-                With -x, an existing destination is removed and recreated.
+  -m MANIFEST   Use an explicit strict-integrity manifest.
+  -d DIRECTORY  Local extraction or pull destination.
+  -f            Permit replacement and destructive network maintenance.
   -h            Display this help text and exit.
   --            End option processing.
 
-Operands:
-  SOURCE        One file, directory, or symbolic link to archive.
-  PART          Any part named like NAME.tar.EXT.part.aaaaaa.
-  INPUT         A supported compressed tar archive or any one of its parts.
+Important network options:
+  profile=safe|lan|jumbo-lan|wan|high-latency|metered|unstable|archive
+  transport=sftp|ssh-stream       resume=yes|no       atomic=yes|no
+  identity=FILE                   port=PORT           jump=HOST
+  host-key-policy=strict|accept-new
+  known-hosts=FILE                connect-timeout=SECONDS
+  server-alive-interval=SECONDS   server-alive-count=COUNT
+  jobs=NUMBER                     sftp-buffer=BYTES
+  sftp-requests=NUMBER            bandwidth=KBIT/S
+  mtu-check=off|local|remote|path mtu-required=BYTES
+  remote-extract=PATH|auto        remote-fsync=yes|no
+  retry=COUNT                     retry-delay=SECONDS
+  retry-backoff=linear|exponential
+  dry-run=yes|no                  audit-log=FILE
+  quorum=NUMBER                   gc-days=NUMBER
 
-Strict integrity validates three layers:
-  1. A canonical SHA-256 inventory of the source content and tree structure.
-  2. The SHA-256 and byte size of the complete compressed archive.
-  3. The SHA-256 and byte size of every split part.
+Version gates:
+  4.0: transactional SSH/SFTP push, pull, strict remote verification,
+       staging, locking, atomic bundle publication, and remote extraction.
+  4.1: network profiles, SFTP tuning, parallel part transfers, MTU/jumbo-frame
+       diagnostics, connection multiplexing, and adaptive recommendations.
+  4.2: multi-destination fan-out, quorum, relay, inventory, garbage collection,
+       health queries, and JSON Lines audit logging.
 
 Examples:
-  $PROGRAM_NAME -c -i -s 500M "/path/My directory"
-  $PROGRAM_NAME -c -i -e xz -s 2GiB -l 6 -T 0 source-directory
-  $PROGRAM_NAME -j -i "/path/My directory.tar.zst.part.aaaaac"
-  $PROGRAM_NAME -x -i -d restored archive.tar.xz.part.aaaaaa
-  $PROGRAM_NAME -v -i archive.tar.gz
-  $PROGRAM_NAME -E
+  $PROGRAM_NAME -c -i -s 1G -R backup@nas:/srv/backups source
+  $PROGRAM_NAME -P -i -R backup@nas:/srv/backups archive.tar.zst.part.aaaaaa
+  $PROGRAM_NAME -G -i -R backup@nas:/srv/backups/archive.tar.zst.bundle/archive.tar.zst.part.aaaaaa -d restored-parts
+  $PROGRAM_NAME -Q network -R backup@nas:/srv/backups -O profile=jumbo-lan
+  $PROGRAM_NAME -P -i -R host1:/backup -R host2:/backup -O quorum=1 PART
+  $PROGRAM_NAME -Y -i -R source:/backup/a.bundle/a.tar.zst.part.aaaaaa \
+      -R mirror:/backup
 
 Compatibility aliases:
   $PROGRAM_NAME --help       is accepted as an alias for -h.
   $PROGRAM_NAME --engines    is accepted as an alias for -E.
 
-When run without arguments, the script displays an interactive terminal menu.
+When run without arguments, the script displays the local interactive menu.
 EOF_USAGE
 }
 
@@ -143,6 +224,9 @@ cleanup()
     if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
         rm -rf "$WORK_DIR"
     fi
+    if [ -n "$NETWORK_TEMP_DIR" ] && [ -d "$NETWORK_TEMP_DIR" ]; then
+        rm -rf "$NETWORK_TEMP_DIR"
+    fi
 }
 
 trap cleanup 0 1 2 3 15
@@ -157,7 +241,7 @@ require_command()
 
 require_base_commands()
 {
-    for required_command in tar split cat mkdir rm mv dirname basename mkfifo awk wc
+    for required_command in tar split cat mkdir rm mv dirname basename mkfifo awk wc tr
     do
         require_command "$required_command" || return 1
     done
@@ -420,8 +504,8 @@ manifest_walk()
                 continue
             fi
             walk_child_name=${walk_child##*/}
-            manifest_walk "$walk_child" "$walk_relative/$walk_child_name" \
-                "$walk_output" || return 1
+            ( manifest_walk "$walk_child" "$walk_relative/$walk_child_name" \
+                "$walk_output" ) || return 1
         done
         return 0
     fi
@@ -1078,6 +1162,11 @@ compress_and_split()
     rm -rf "$WORK_DIR"
     WORK_DIR=
 
+    LAST_PART_PREFIX=$output_prefix
+    LAST_MANIFEST=
+    [ "$STRICT_INTEGRITY" -eq 0 ] || LAST_MANIFEST=$output_manifest
+    LAST_ARCHIVE=$archive_file
+
     print_info "Compression and splitting completed."
     print_info "Parts created: $part_count"
     print_info "Output prefix: $output_prefix"
@@ -1319,6 +1408,1023 @@ extract_archive()
     print_info "Extraction completed and verified: $extraction_destination"
 }
 
+
+append_line()
+{
+    append_variable=$1
+    append_value=$2
+    eval "append_current=\${$append_variable-}"
+    if [ -n "$append_current" ]; then
+        append_current=$(printf '%s\n%s' "$append_current" "$append_value")
+    else
+        append_current=$append_value
+    fi
+    eval "$append_variable=\$append_current"
+}
+
+resolve_self_path()
+{
+    case $0 in
+        /*) SELF_PATH=$0 ;;
+        *)
+            self_dir=$(dirname "$0")
+            self_base=$(basename "$0")
+            SELF_PATH=$(cd "$self_dir" 2>/dev/null && pwd -P)/$self_base
+            ;;
+    esac
+    [ -f "$SELF_PATH" ] || {
+        print_error "cannot resolve the running script for remote verification: $SELF_PATH"
+        return 1
+    }
+}
+
+make_network_temp_dir()
+{
+    [ -n "$NETWORK_TEMP_DIR" ] && [ -d "$NETWORK_TEMP_DIR" ] && return 0
+    network_tmp_parent=${TMPDIR:-/tmp}
+    old_umask=$(umask)
+    umask 077
+    NETWORK_TEMP_DIR=$network_tmp_parent/zstd-splitter-network.$$
+    if ! mkdir "$NETWORK_TEMP_DIR" 2>/dev/null; then
+        network_index=0
+        while [ "$network_index" -lt 100 ]; do
+            network_index=$((network_index + 1))
+            NETWORK_TEMP_DIR=$network_tmp_parent/zstd-splitter-network.$$.$network_index
+            mkdir "$NETWORK_TEMP_DIR" 2>/dev/null && break
+        done
+    fi
+    umask "$old_umask"
+    [ -d "$NETWORK_TEMP_DIR" ] || {
+        print_error "cannot create network temporary directory"
+        return 1
+    }
+}
+
+network_require_commands()
+{
+    for network_command in sed date sleep grep mktemp
+    do
+        require_command "$network_command" || return 1
+    done
+    if [ "$NET_DRY_RUN" != yes ]; then
+        require_command ssh || return 1
+        require_command sftp || return 1
+    fi
+    resolve_self_path || return 1
+    make_network_temp_dir || return 1
+}
+
+network_validate_yes_no()
+{
+    case $1 in yes|no) return 0 ;; *) return 1 ;; esac
+}
+
+network_read_option_lines()
+{
+    if [ -n "$NETWORK_CONFIG" ]; then
+        [ -f "$NETWORK_CONFIG" ] || {
+            print_error "network configuration file not found: $NETWORK_CONFIG"
+            return 1
+        }
+        sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$NETWORK_CONFIG"
+    fi
+    [ -z "$NETWORK_OPTIONS" ] || printf '%s\n' "$NETWORK_OPTIONS"
+}
+
+network_find_last_option()
+{
+    find_key=$1
+    network_read_option_lines | awk -F= -v key="$find_key" '
+        $1 == key { sub(/^[^=]*=/, ""); value=$0; found=1 }
+        END { if (found) print value }
+    '
+}
+
+network_apply_profile()
+{
+    profile_name=$1
+    case $profile_name in
+        safe)
+            NET_JOBS=1; NET_SFTP_BUFFER=32768; NET_SFTP_REQUESTS=64
+            NET_RETRY=3; NET_KEEPALIVE_INTERVAL=15; NET_KEEPALIVE_COUNT=3
+            NET_REMOTE_FSYNC=yes; NET_ATOMIC=yes; NET_RESUME=yes
+            ;;
+        lan)
+            NET_JOBS=3; NET_SFTP_BUFFER=262144; NET_SFTP_REQUESTS=128
+            NET_RETRY=2; NET_CONNECT_TIMEOUT=10; NET_REMOTE_FSYNC=no
+            NET_CONTROL_MASTER=auto; NET_CONTROL_PERSIST=120
+            ;;
+        jumbo-lan)
+            NET_JOBS=4; NET_SFTP_BUFFER=1048576; NET_SFTP_REQUESTS=128
+            NET_STREAM_BLOCK=4194304; NET_MTU_CHECK=path; NET_MTU_REQUIRED=9000
+            NET_RETRY=2; NET_REMOTE_FSYNC=no; NET_CONTROL_PERSIST=120
+            ;;
+        wan)
+            NET_JOBS=2; NET_SFTP_BUFFER=131072; NET_SFTP_REQUESTS=128
+            NET_RETRY=5; NET_RETRY_DELAY=3; NET_BACKOFF=exponential
+            NET_KEEPALIVE_INTERVAL=15; NET_KEEPALIVE_COUNT=3
+            ;;
+        high-latency)
+            NET_JOBS=2; NET_SFTP_BUFFER=262144; NET_SFTP_REQUESTS=256
+            NET_RETRY=5; NET_BACKOFF=exponential; NET_CONTROL_PERSIST=300
+            ;;
+        metered)
+            NET_JOBS=1; NET_SFTP_BUFFER=65536; NET_SFTP_REQUESTS=32
+            [ "$NET_BANDWIDTH" -ne 0 ] || NET_BANDWIDTH=10000
+            ;;
+        unstable)
+            NET_JOBS=1; NET_SFTP_BUFFER=32768; NET_SFTP_REQUESTS=32
+            NET_RETRY=8; NET_RETRY_DELAY=2; NET_BACKOFF=exponential
+            NET_KEEPALIVE_INTERVAL=10; NET_KEEPALIVE_COUNT=3
+            ;;
+        archive)
+            NET_JOBS=1; NET_SFTP_BUFFER=65536; NET_SFTP_REQUESTS=64
+            NET_REMOTE_FSYNC=yes; NET_RETAIN=all; NET_ATOMIC=yes
+            NET_RETRY=5
+            ;;
+        *)
+            print_error "unknown network profile: $profile_name"
+            return 2
+            ;;
+    esac
+    NET_PROFILE=$profile_name
+}
+
+network_apply_pair()
+{
+    option_line=$1
+    case $option_line in
+        *=*) option_key=${option_line%%=*}; option_value=${option_line#*=} ;;
+        *) print_error "invalid network option (expected NAME=VALUE): $option_line"; return 2 ;;
+    esac
+    case $option_key in
+        profile) : ;;
+        transport) NET_TRANSPORT=$option_value ;;
+        resume) NET_RESUME=$option_value ;;
+        atomic) NET_ATOMIC=$option_value ;;
+        remote-verify) NET_REMOTE_VERIFY=$option_value ;;
+        remote-extract) NET_REMOTE_EXTRACT=$option_value ;;
+        retry) NET_RETRY=$option_value ;;
+        retry-delay) NET_RETRY_DELAY=$option_value ;;
+        retry-backoff) NET_BACKOFF=$option_value ;;
+        connect-timeout) NET_CONNECT_TIMEOUT=$option_value ;;
+        server-alive-interval) NET_KEEPALIVE_INTERVAL=$option_value ;;
+        server-alive-count) NET_KEEPALIVE_COUNT=$option_value ;;
+        host-key-policy) NET_HOST_KEY_POLICY=$option_value ;;
+        known-hosts) NET_KNOWN_HOSTS=$option_value ;;
+        identity) NET_IDENTITY=$option_value ;;
+        port) NET_PORT=$option_value ;;
+        jump) NET_JUMP=$option_value ;;
+        address-family) NET_ADDRESS_FAMILY=$option_value ;;
+        bind-interface) NET_BIND_INTERFACE=$option_value ;;
+        bind-address) NET_BIND_ADDRESS=$option_value ;;
+        ssh-compression) NET_SSH_COMPRESSION=$option_value ;;
+        control-master) NET_CONTROL_MASTER=$option_value ;;
+        control-persist) NET_CONTROL_PERSIST=$option_value ;;
+        jobs) NET_JOBS=$option_value ;;
+        sftp-buffer) NET_SFTP_BUFFER=$option_value ;;
+        sftp-requests) NET_SFTP_REQUESTS=$option_value ;;
+        bandwidth) NET_BANDWIDTH=$option_value ;;
+        stream-block) NET_STREAM_BLOCK=$option_value ;;
+        mtu-check) NET_MTU_CHECK=$option_value ;;
+        mtu-required) NET_MTU_REQUIRED=$option_value ;;
+        tune) NET_TUNE=$option_value ;;
+        remote-fsync) NET_REMOTE_FSYNC=$option_value ;;
+        cleanup) NET_CLEANUP=$option_value ;;
+        dry-run) NET_DRY_RUN=$option_value ;;
+        quorum) NET_QUORUM=$option_value ;;
+        audit-log) NET_AUDIT_LOG=$option_value ;;
+        gc-days) NET_GC_DAYS=$option_value ;;
+        retain) NET_RETAIN=$option_value ;;
+        lock) NET_LOCK=$option_value ;;
+        allow-unverified) NET_ALLOW_UNVERIFIED=$option_value ;;
+        destination) append_line REMOTE_DESTINATIONS "$option_value" ;;
+        *) print_error "unknown network option: $option_key"; return 2 ;;
+    esac
+}
+
+network_validate_settings()
+{
+    case $NET_TRANSPORT in sftp|ssh-stream) ;; *) print_error "invalid transport: $NET_TRANSPORT"; return 2 ;; esac
+    for yn_pair in \
+        "resume:$NET_RESUME" "atomic:$NET_ATOMIC" \
+        "remote-fsync:$NET_REMOTE_FSYNC" "dry-run:$NET_DRY_RUN" \
+        "lock:$NET_LOCK" "allow-unverified:$NET_ALLOW_UNVERIFIED"
+    do
+        yn_name=${yn_pair%%:*}; yn_value=${yn_pair#*:}
+        network_validate_yes_no "$yn_value" || {
+            print_error "$yn_name must be yes or no"
+            return 2
+        }
+    done
+    for int_pair in \
+        "retry:$NET_RETRY" "retry-delay:$NET_RETRY_DELAY" \
+        "connect-timeout:$NET_CONNECT_TIMEOUT" \
+        "server-alive-interval:$NET_KEEPALIVE_INTERVAL" \
+        "server-alive-count:$NET_KEEPALIVE_COUNT" \
+        "jobs:$NET_JOBS" "sftp-buffer:$NET_SFTP_BUFFER" \
+        "sftp-requests:$NET_SFTP_REQUESTS" "bandwidth:$NET_BANDWIDTH" \
+        "stream-block:$NET_STREAM_BLOCK" "mtu-required:$NET_MTU_REQUIRED" \
+        "quorum:$NET_QUORUM" "gc-days:$NET_GC_DAYS"
+    do
+        int_name=${int_pair%%:*}; int_value=${int_pair#*:}
+        validate_nonnegative_integer "$int_value" || {
+            print_error "$int_name must be a non-negative integer"
+            return 2
+        }
+    done
+    [ "$NET_JOBS" -gt 0 ] || { print_error "jobs must be greater than zero"; return 2; }
+    [ "$NET_SFTP_BUFFER" -gt 0 ] || { print_error "sftp-buffer must be greater than zero"; return 2; }
+    [ "$NET_SFTP_REQUESTS" -gt 0 ] || { print_error "sftp-requests must be greater than zero"; return 2; }
+    case $NET_HOST_KEY_POLICY in strict|accept-new) ;; *) print_error "invalid host-key-policy"; return 2 ;; esac
+    case $NET_ADDRESS_FAMILY in any|inet|inet6) ;; *) print_error "invalid address-family"; return 2 ;; esac
+    case $NET_BACKOFF in linear|exponential) ;; *) print_error "invalid retry-backoff"; return 2 ;; esac
+    case $NET_MTU_CHECK in off|local|remote|path) ;; *) print_error "invalid mtu-check"; return 2 ;; esac
+    case $NET_TUNE in off|safe|adaptive) ;; *) print_error "invalid tune value"; return 2 ;; esac
+    case $NET_CLEANUP in success|always|never) ;; *) print_error "invalid cleanup policy"; return 2 ;; esac
+    case $NET_RETAIN in parts|archive|all) ;; *) print_error "invalid retain value"; return 2 ;; esac
+    case $NET_REMOTE_VERIFY in parts|archive|content|all|none) ;; *) print_error "invalid remote-verify"; return 2 ;; esac
+
+    if [ "$FEATURE_LEVEL" -lt 41 ]; then
+        [ "$NET_PROFILE" = safe ] || { print_error "network profiles require version 4.1"; return 2; }
+        [ "$NET_JOBS" -eq 1 ] || { print_error "parallel network jobs require version 4.1"; return 2; }
+        [ "$NET_MTU_CHECK" = off ] || { print_error "MTU diagnostics require version 4.1"; return 2; }
+        [ "$NET_TUNE" = off ] || { print_error "network tuning requires version 4.1"; return 2; }
+    fi
+    if [ "$FEATURE_LEVEL" -lt 42 ]; then
+        [ "$NET_QUORUM" -eq 0 ] || { print_error "quorum requires version 4.2"; return 2; }
+        [ -z "$NET_AUDIT_LOG" ] || { print_error "audit-log requires version 4.2"; return 2; }
+    fi
+}
+
+network_initialize()
+{
+    requested_profile=$(network_find_last_option profile || :)
+    [ -n "$requested_profile" ] || requested_profile=safe
+    network_apply_profile "$requested_profile" || return
+
+    old_ifs=$IFS
+    IFS='
+'
+    set -f
+    for network_line in $(network_read_option_lines)
+    do
+        network_apply_pair "$network_line" || { IFS=$old_ifs; return; }
+    done
+    set +f
+    IFS=$old_ifs
+    network_validate_settings || return
+    remote_count_now=$(network_count_remotes)
+    if [ "$FEATURE_LEVEL" -lt 42 ] && [ "$remote_count_now" -gt 1 ]; then
+        print_error "multiple remote specifications require version 4.2"
+        return 2
+    fi
+    if [ "$ACTION" = query ] && [ "$NETWORK_QUERY_MODE" = config ]; then
+        return 0
+    fi
+    network_require_commands || return
+
+    NETWORK_CONTROL_DIR=${TMPDIR:-/tmp}/zstd-splitter-control-${USER:-user}
+    mkdir -p "$NETWORK_CONTROL_DIR" 2>/dev/null || :
+}
+
+network_count_remotes()
+{
+    [ -z "$REMOTE_DESTINATIONS" ] && { printf '%s\n' 0; return; }
+    printf '%s\n' "$REMOTE_DESTINATIONS" | awk 'NF { count++ } END { print count + 0 }'
+}
+
+parse_remote_spec()
+{
+    remote_spec=$1
+    case $remote_spec in
+        *']:'*)
+            REMOTE_TARGET=${remote_spec%%]:*}]
+            REMOTE_PATH=${remote_spec#*]:}
+            ;;
+        *:*)
+            REMOTE_TARGET=${remote_spec%%:*}
+            REMOTE_PATH=${remote_spec#*:}
+            ;;
+        *)
+            print_error "invalid remote specification: $remote_spec"
+            return 2
+            ;;
+    esac
+    [ -n "$REMOTE_TARGET" ] && [ -n "$REMOTE_PATH" ] || {
+        print_error "invalid remote specification: $remote_spec"
+        return 2
+    }
+    case $REMOTE_PATH in
+        /*) ;;
+        *) print_error "remote path must be absolute: $REMOTE_PATH"; return 2 ;;
+    esac
+    case $REMOTE_PATH in *'
+'*) print_error "remote paths containing newlines are refused"; return 2 ;; esac
+}
+
+shell_quote()
+{
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\''/g")"
+}
+
+sftp_quote()
+{
+    printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+network_print_command()
+{
+    printf '[dry-run]'
+    for print_arg in "$@"; do printf ' %s' "$(shell_quote "$print_arg")"; done
+    printf '\n'
+}
+
+ssh_run()
+{
+    ssh_destination=$1
+    ssh_command=$2
+    set -- ssh -o BatchMode=yes -o RequestTTY=no \
+        -o "ConnectTimeout=$NET_CONNECT_TIMEOUT" \
+        -o "ServerAliveInterval=$NET_KEEPALIVE_INTERVAL" \
+        -o "ServerAliveCountMax=$NET_KEEPALIVE_COUNT" \
+        -o "Compression=$NET_SSH_COMPRESSION" \
+        -o "StrictHostKeyChecking=$( [ "$NET_HOST_KEY_POLICY" = strict ] && printf yes || printf %s "$NET_HOST_KEY_POLICY" )" \
+        -o "ControlMaster=$NET_CONTROL_MASTER" \
+        -o "ControlPersist=$NET_CONTROL_PERSIST" \
+        -o "ControlPath=$NETWORK_CONTROL_DIR/%C"
+    [ -z "$NET_KNOWN_HOSTS" ] || set -- "$@" -o "UserKnownHostsFile=$NET_KNOWN_HOSTS"
+    [ -z "$NET_IDENTITY" ] || set -- "$@" -i "$NET_IDENTITY"
+    [ -z "$NET_PORT" ] || set -- "$@" -p "$NET_PORT"
+    [ -z "$NET_JUMP" ] || set -- "$@" -J "$NET_JUMP"
+    case $NET_ADDRESS_FAMILY in inet) set -- "$@" -4 ;; inet6) set -- "$@" -6 ;; esac
+    [ -z "$NET_BIND_INTERFACE" ] || set -- "$@" -B "$NET_BIND_INTERFACE"
+    [ -z "$NET_BIND_ADDRESS" ] || set -- "$@" -b "$NET_BIND_ADDRESS"
+    set -- "$@" "$ssh_destination" "$ssh_command"
+    if [ "$NET_DRY_RUN" = yes ]; then network_print_command "$@"; return 0; fi
+    "$@"
+}
+
+sftp_run_batch()
+{
+    sftp_destination=$1
+    sftp_batch=$2
+    set -- sftp -q -b "$sftp_batch" -B "$NET_SFTP_BUFFER" -R "$NET_SFTP_REQUESTS" \
+        -o BatchMode=yes \
+        -o "ConnectTimeout=$NET_CONNECT_TIMEOUT" \
+        -o "ServerAliveInterval=$NET_KEEPALIVE_INTERVAL" \
+        -o "ServerAliveCountMax=$NET_KEEPALIVE_COUNT" \
+        -o "Compression=$NET_SSH_COMPRESSION" \
+        -o "StrictHostKeyChecking=$( [ "$NET_HOST_KEY_POLICY" = strict ] && printf yes || printf %s "$NET_HOST_KEY_POLICY" )" \
+        -o "ControlMaster=$NET_CONTROL_MASTER" \
+        -o "ControlPersist=$NET_CONTROL_PERSIST" \
+        -o "ControlPath=$NETWORK_CONTROL_DIR/%C"
+    [ "$NET_BANDWIDTH" -eq 0 ] || set -- "$@" -l "$NET_BANDWIDTH"
+    [ -z "$NET_KNOWN_HOSTS" ] || set -- "$@" -o "UserKnownHostsFile=$NET_KNOWN_HOSTS"
+    [ -z "$NET_IDENTITY" ] || set -- "$@" -i "$NET_IDENTITY"
+    [ -z "$NET_PORT" ] || set -- "$@" -P "$NET_PORT"
+    [ -z "$NET_JUMP" ] || set -- "$@" -J "$NET_JUMP"
+    case $NET_ADDRESS_FAMILY in inet) set -- "$@" -4 ;; inet6) set -- "$@" -6 ;; esac
+    set -- "$@" "$sftp_destination"
+    if [ "$NET_DRY_RUN" = yes ]; then
+        network_print_command "$@"
+        sed 's/^/[dry-run sftp] /' "$sftp_batch"
+        return 0
+    fi
+    "$@"
+}
+
+network_retry()
+{
+    retry_attempt=0
+    retry_delay=$NET_RETRY_DELAY
+    while :; do
+        if "$@"; then return 0; fi
+        retry_attempt=$((retry_attempt + 1))
+        [ "$retry_attempt" -le "$NET_RETRY" ] || return 1
+        print_error "network operation failed; retry $retry_attempt/$NET_RETRY in ${retry_delay}s"
+        sleep "$retry_delay"
+        case $NET_BACKOFF in
+            linear) retry_delay=$((retry_delay + NET_RETRY_DELAY)) ;;
+            exponential) retry_delay=$((retry_delay * 2)) ;;
+        esac
+    done
+}
+
+sftp_put_one()
+{
+    put_destination=$1; put_local=$2; put_remote=$3
+    make_network_temp_dir || return 1
+    NETWORK_COUNTER=$((NETWORK_COUNTER + 1))
+    put_batch=$(mktemp "$NETWORK_TEMP_DIR/put.XXXXXX")
+    if [ "$NET_RESUME" = yes ]; then put_flag='put -a'; else put_flag=put; fi
+    printf '%s %s %s\n' "$put_flag" "$(sftp_quote "$put_local")" "$(sftp_quote "$put_remote")" >"$put_batch"
+    sftp_run_batch "$put_destination" "$put_batch"
+}
+
+sftp_get_one()
+{
+    get_destination=$1; get_remote=$2; get_local=$3
+    make_network_temp_dir || return 1
+    NETWORK_COUNTER=$((NETWORK_COUNTER + 1))
+    get_batch=$(mktemp "$NETWORK_TEMP_DIR/get.XXXXXX")
+    if [ "$NET_RESUME" = yes ]; then get_flag='get -a'; else get_flag=get; fi
+    printf '%s %s %s\n' "$get_flag" "$(sftp_quote "$get_remote")" "$(sftp_quote "$get_local")" >"$get_batch"
+    sftp_run_batch "$get_destination" "$get_batch"
+}
+
+json_escape()
+{
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r/\\r/g; s/\n/\\n/g'
+}
+
+audit_event()
+{
+    audit_name=$1; audit_status=$2; audit_detail=${3-}
+    [ -n "$NET_AUDIT_LOG" ] || return 0
+    audit_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    printf '{"time":"%s","program":"%s","version":"%s","event":"%s","status":"%s","detail":"%s"}\n' \
+        "$(json_escape "$audit_time")" "$(json_escape "$PROGRAM_NAME")" \
+        "$(json_escape "$PROGRAM_VERSION")" "$(json_escape "$audit_name")" \
+        "$(json_escape "$audit_status")" "$(json_escape "$audit_detail")" \
+        >>"$NET_AUDIT_LOG"
+}
+
+network_transfer_id()
+{
+    printf '%s-%s\n' "$(date -u '+%Y%m%dT%H%M%SZ')" "$$"
+}
+
+network_prepare_local_set()
+{
+    transfer_input=$1
+    make_network_temp_dir || return 1
+    NETWORK_FILE_LIST=$NETWORK_TEMP_DIR/local-files.$$.list
+    : >"$NETWORK_FILE_LIST"
+    NETWORK_MANIFEST_PATH=
+    NETWORK_SELECTED_PART=
+    NETWORK_ARCHIVE_NAME=
+    NETWORK_ENGINE=
+
+    if detected_engine=$(detect_engine_from_part "$transfer_input" 2>/dev/null); then
+        [ -f "$transfer_input" ] || { print_error "part does not exist: $transfer_input"; return 1; }
+        NETWORK_ENGINE=$detected_engine
+        transfer_prefix=${transfer_input%??????}
+        transfer_archive=${transfer_prefix%.part.}
+        NETWORK_ARCHIVE_NAME=$(basename "$transfer_archive")
+        NETWORK_MANIFEST_PATH=$(resolve_manifest "$transfer_input" part)
+        if [ "$STRICT_INTEGRITY" -eq 1 ]; then
+            make_work_dir "$(dirname "$transfer_input")"
+            validate_parts_against_manifest "$transfer_input" "$NETWORK_MANIFEST_PATH" || return 1
+            awk -F '\t' '$1 == "part" { print $2 }' "$NETWORK_MANIFEST_PATH" >"$NETWORK_TEMP_DIR/suffixes.$$.list"
+            while IFS= read -r transfer_suffix; do
+                transfer_file=$transfer_prefix$transfer_suffix
+                case $transfer_file in *'
+'*) print_error "network transfer refuses newlines in file names"; return 1 ;; esac
+                printf '%s\n' "$transfer_file" >>"$NETWORK_FILE_LIST"
+                [ -n "$NETWORK_SELECTED_PART" ] || NETWORK_SELECTED_PART=$transfer_file
+            done <"$NETWORK_TEMP_DIR/suffixes.$$.list"
+            rm -rf "$WORK_DIR"; WORK_DIR=
+            printf '%s\n' "$NETWORK_MANIFEST_PATH" >>"$NETWORK_FILE_LIST"
+        else
+            [ "$NET_ALLOW_UNVERIFIED" = yes ] || {
+                print_error "network transfer requires -i or -O allow-unverified=yes"
+                return 2
+            }
+            for transfer_file in "$transfer_prefix"??????; do [ -f "$transfer_file" ] && printf '%s\n' "$transfer_file" >>"$NETWORK_FILE_LIST"; done
+            NETWORK_SELECTED_PART=$transfer_input
+        fi
+    elif detected_engine=$(detect_engine_from_archive "$transfer_input" 2>/dev/null); then
+        [ -f "$transfer_input" ] || { print_error "archive does not exist: $transfer_input"; return 1; }
+        NETWORK_ENGINE=$detected_engine
+        NETWORK_ARCHIVE_NAME=$(basename "$transfer_input")
+        printf '%s\n' "$transfer_input" >>"$NETWORK_FILE_LIST"
+        if [ "$STRICT_INTEGRITY" -eq 1 ]; then
+            NETWORK_MANIFEST_PATH=$(resolve_manifest "$transfer_input" archive)
+            make_work_dir "$(dirname "$transfer_input")"
+            validate_archive_against_manifest "$transfer_input" "$detected_engine" "$NETWORK_MANIFEST_PATH" || return 1
+            rm -rf "$WORK_DIR"; WORK_DIR=
+            printf '%s\n' "$NETWORK_MANIFEST_PATH" >>"$NETWORK_FILE_LIST"
+        elif [ "$NET_ALLOW_UNVERIFIED" != yes ]; then
+            print_error "network transfer requires -i or -O allow-unverified=yes"
+            return 2
+        fi
+    else
+        print_error "network input must be a supported archive or split part"
+        return 2
+    fi
+}
+
+ssh_stream_put_one()
+{
+    stream_destination=$1; stream_local=$2; stream_remote=$3
+    if [ "$NET_DRY_RUN" = yes ]; then
+        print_info "[dry-run] ssh-stream upload $(shell_quote "$stream_local") -> $(shell_quote "$stream_destination:$stream_remote")"
+        return 0
+    fi
+    ssh_run "$stream_destination" "cat > $(shell_quote "$stream_remote")" <"$stream_local"
+}
+
+ssh_stream_get_one()
+{
+    stream_destination=$1; stream_remote=$2; stream_local=$3
+    if [ "$NET_DRY_RUN" = yes ]; then
+        print_info "[dry-run] ssh-stream download $(shell_quote "$stream_destination:$stream_remote") -> $(shell_quote "$stream_local")"
+        return 0
+    fi
+    ssh_run "$stream_destination" "cat $(shell_quote "$stream_remote")" >"$stream_local"
+}
+
+network_put_one()
+{
+    case $NET_TRANSPORT in
+        sftp) sftp_put_one "$@" ;;
+        ssh-stream) ssh_stream_put_one "$@" ;;
+    esac
+}
+
+network_get_one()
+{
+    case $NET_TRANSPORT in
+        sftp) sftp_get_one "$@" ;;
+        ssh-stream) ssh_stream_get_one "$@" ;;
+    esac
+}
+
+network_remote_verify_commit()
+{
+    verify_target=$1; verify_partial=$2; verify_final=$3; verify_size=$4; verify_sha=$5
+    q_partial=$(shell_quote "$verify_partial")
+    q_final=$(shell_quote "$verify_final")
+    q_sha=$(shell_quote "$verify_sha")
+    verify_command="set -eu; test -f $q_partial; test \"\$(wc -c < $q_partial | tr -d ' ')\" = $(shell_quote "$verify_size"); test \"\$(sha256sum $q_partial | awk '{print \$1}')\" = $q_sha; mv -f $q_partial $q_final"
+    if [ "$NET_REMOTE_FSYNC" = yes ]; then
+        verify_command="$verify_command; sync -f $q_final 2>/dev/null || sync"
+    fi
+    ssh_run "$verify_target" "$verify_command"
+}
+
+network_remote_preflight()
+{
+    preflight_spec=$1
+    parse_remote_spec "$preflight_spec" || return
+    preflight_engine_command=$(engine_command "$NETWORK_ENGINE" 2>/dev/null || :)
+    preflight_commands="sh tar split cat mkdir rm mv dirname basename mkfifo awk wc tr sha256sum cmp readlink"
+    [ -z "$preflight_engine_command" ] || preflight_commands="$preflight_commands $preflight_engine_command"
+    preflight_script='set -eu; for c in '$preflight_commands'; do command -v "$c" >/dev/null 2>&1 || { echo "missing remote command: $c" >&2; exit 1; }; done; test -w '$(shell_quote "$REMOTE_PATH")' 2>/dev/null || { mkdir -p '$(shell_quote "$REMOTE_PATH")'; test -w '$(shell_quote "$REMOTE_PATH")'; }'
+    ssh_run "$REMOTE_TARGET" "$preflight_script"
+}
+
+network_stage_begin()
+{
+    stage_spec=$1; archive_name=$2
+    parse_remote_spec "$stage_spec" || return
+    STAGE_TARGET=$REMOTE_TARGET
+    STAGE_ROOT=$REMOTE_PATH
+    STAGE_ID=$(network_transfer_id)
+    STAGE_DIR=$STAGE_ROOT/.zstd-splitter.incoming/$STAGE_ID
+    STAGE_LOCK=$STAGE_ROOT/.zstd-splitter.locks/$archive_name.lock
+    STAGE_BUNDLE=$STAGE_ROOT/$archive_name.bundle
+    q_root=$(shell_quote "$STAGE_ROOT")
+    q_stage=$(shell_quote "$STAGE_DIR")
+    q_lock=$(shell_quote "$STAGE_LOCK")
+    stage_command="set -eu; mkdir -p $q_root $(shell_quote "$STAGE_ROOT/.zstd-splitter.incoming") $(shell_quote "$STAGE_ROOT/.zstd-splitter.locks")"
+    if [ "$NET_LOCK" = yes ]; then
+        stage_command="$stage_command; mkdir $q_lock"
+    fi
+    stage_command="$stage_command; mkdir -p $q_stage"
+    ssh_run "$STAGE_TARGET" "$stage_command"
+}
+
+network_stage_abort()
+{
+    abort_target=$1; abort_stage=$2; abort_lock=$3
+    abort_command=
+    [ "$NET_CLEANUP" = always ] && abort_command="rm -rf $(shell_quote "$abort_stage");"
+    abort_command="$abort_command rmdir $(shell_quote "$abort_lock") 2>/dev/null || :"
+    ssh_run "$abort_target" "$abort_command" || :
+}
+
+network_upload_file_to_stage()
+{
+    upload_target=$1; upload_stage=$2; upload_file=$3
+    upload_base=$(basename "$upload_file")
+    upload_partial=$upload_stage/$upload_base.partial
+    upload_final=$upload_stage/$upload_base
+    upload_size=$(file_size "$upload_file")
+    upload_sha=$(sha256_file "$upload_file")
+    network_retry network_put_one "$upload_target" "$upload_file" "$upload_partial" || return 1
+    network_retry network_remote_verify_commit "$upload_target" "$upload_partial" "$upload_final" "$upload_size" "$upload_sha"
+}
+
+network_upload_list_parallel()
+{
+    parallel_target=$1; parallel_stage=$2; parallel_list=$3
+    if [ "$FEATURE_LEVEL" -lt 41 ] || [ "$NET_JOBS" -le 1 ]; then
+        while IFS= read -r parallel_file; do
+            network_upload_file_to_stage "$parallel_target" "$parallel_stage" "$parallel_file" || return 1
+        done <"$parallel_list"
+        return 0
+    fi
+
+    parallel_pids=
+    parallel_count=0
+    parallel_status=0
+    while IFS= read -r parallel_file; do
+        network_upload_file_to_stage "$parallel_target" "$parallel_stage" "$parallel_file" &
+        parallel_pid=$!
+        parallel_pids="$parallel_pids $parallel_pid"
+        parallel_count=$((parallel_count + 1))
+        if [ "$parallel_count" -ge "$NET_JOBS" ]; then
+            parallel_old_ifs=$IFS; IFS=' '
+            for parallel_pid in $parallel_pids; do wait "$parallel_pid" || parallel_status=1; done
+            IFS=$parallel_old_ifs
+            [ "$parallel_status" -eq 0 ] || return 1
+            parallel_pids=; parallel_count=0
+        fi
+    done <"$parallel_list"
+    parallel_old_ifs=$IFS; IFS=' '
+    for parallel_pid in $parallel_pids; do wait "$parallel_pid" || parallel_status=1; done
+    IFS=$parallel_old_ifs
+    [ "$parallel_status" -eq 0 ]
+}
+
+network_remote_helper_action()
+{
+    helper_target=$1; helper_stage=$2; helper_selected=$3; helper_manifest=$4
+    helper_name=.zstd-splitter-helper.sh
+    network_upload_file_to_stage "$helper_target" "$helper_stage" "$SELF_PATH" || return 1
+    # The uploaded script keeps its local basename. Rename it to a predictable helper name.
+    uploaded_self=$helper_stage/$(basename "$SELF_PATH")
+    ssh_run "$helper_target" "mv -f $(shell_quote "$uploaded_self") $(shell_quote "$helper_stage/$helper_name")" || return 1
+
+    q_stage=$(shell_quote "$helper_stage")
+    q_helper=$(shell_quote "./$helper_name")
+    q_selected=$(shell_quote "$helper_selected")
+    q_manifest=$(shell_quote "$helper_manifest")
+    remote_command="set -eu; cd $q_stage; sh $q_helper -v -i -m $q_manifest $q_selected"
+    case $NET_RETAIN in
+        archive|all) remote_command="$remote_command; sh $q_helper -j -i -f -m $q_manifest $q_selected" ;;
+    esac
+    if [ -n "$NET_REMOTE_EXTRACT" ]; then
+        remote_command="$remote_command; sh $q_helper -x -i -f -m $q_manifest -d .extracted $q_selected"
+    elif [ "$NET_REMOTE_VERIFY" = content ] || [ "$NET_REMOTE_VERIFY" = all ]; then
+        remote_command="$remote_command; sh $q_helper -x -i -f -m $q_manifest -d .verify-extracted $q_selected; rm -rf .verify-extracted"
+    fi
+    if [ "$NET_RETAIN" = parts ]; then
+        remote_archive=${helper_selected%.part.??????}
+        remote_command="$remote_command; rm -f $(shell_quote "$remote_archive")"
+    fi
+    remote_command="$remote_command; rm -f $q_helper"
+    ssh_run "$helper_target" "$remote_command"
+}
+
+network_stage_publish()
+{
+    publish_target=$1; publish_root=$2; publish_stage=$3; publish_bundle=$4; publish_lock=$5; publish_archive=$6
+    if [ -n "$NET_REMOTE_EXTRACT" ]; then
+        if [ "$NET_REMOTE_EXTRACT" = auto ]; then
+            publish_extract=$publish_root/$publish_archive.extracted
+        else
+            publish_extract=$NET_REMOTE_EXTRACT
+        fi
+        replace_extract=
+        if [ "$FORCE" -eq 1 ]; then replace_extract="rm -rf $(shell_quote "$publish_extract");"; fi
+        ssh_run "$publish_target" "set -eu; $replace_extract test ! -e $(shell_quote "$publish_extract"); mkdir -p $(shell_quote "$(dirname "$publish_extract")"); mv $(shell_quote "$publish_stage/.extracted") $(shell_quote "$publish_extract")" || return 1
+    fi
+
+    if [ "$NET_ATOMIC" = yes ]; then
+        replace_bundle=
+        if [ "$FORCE" -eq 1 ]; then replace_bundle="rm -rf $(shell_quote "$publish_bundle");"; fi
+        publish_command="set -eu; $replace_bundle test ! -e $(shell_quote "$publish_bundle"); mv $(shell_quote "$publish_stage") $(shell_quote "$publish_bundle")"
+    else
+        publish_command="set -eu; for f in $(shell_quote "$publish_stage")/*; do mv \"\$f\" $(shell_quote "$publish_root")/; done; rmdir $(shell_quote "$publish_stage")"
+    fi
+    publish_command="$publish_command; rmdir $(shell_quote "$publish_lock") 2>/dev/null || :"
+    ssh_run "$publish_target" "$publish_command"
+}
+
+network_push_one()
+{
+    push_spec=$1; push_input=$2
+    audit_event push start "$push_spec"
+    network_prepare_local_set "$push_input" || { audit_event push failed "$push_spec"; return 1; }
+    network_remote_preflight "$push_spec" || { audit_event push failed "$push_spec"; return 1; }
+    network_stage_begin "$push_spec" "$NETWORK_ARCHIVE_NAME" || { audit_event push failed "$push_spec"; return 1; }
+
+    if ! network_upload_list_parallel "$STAGE_TARGET" "$STAGE_DIR" "$NETWORK_FILE_LIST"; then
+        network_stage_abort "$STAGE_TARGET" "$STAGE_DIR" "$STAGE_LOCK"
+        audit_event push failed "$push_spec"
+        return 1
+    fi
+
+    if [ "$STRICT_INTEGRITY" -eq 1 ]; then
+        if [ -n "$NETWORK_SELECTED_PART" ] && { [ "$NET_REMOTE_VERIFY" != none ] && [ "$NET_REMOTE_VERIFY" != parts ] || [ -n "$NET_REMOTE_EXTRACT" ]; }; then
+            selected_base=$(basename "$NETWORK_SELECTED_PART")
+            manifest_base=$(basename "$NETWORK_MANIFEST_PATH")
+            if ! network_remote_helper_action "$STAGE_TARGET" "$STAGE_DIR" "$selected_base" "$manifest_base"; then
+                network_stage_abort "$STAGE_TARGET" "$STAGE_DIR" "$STAGE_LOCK"
+                audit_event push failed "$push_spec"
+                return 1
+            fi
+        elif [ -z "$NETWORK_SELECTED_PART" ] && { [ "$NET_REMOTE_VERIFY" != none ] || [ -n "$NET_REMOTE_EXTRACT" ]; }; then
+            # Complete archive: remote native and manifest verification through helper.
+            archive_base=$NETWORK_ARCHIVE_NAME
+            manifest_base=$(basename "$NETWORK_MANIFEST_PATH")
+            network_upload_file_to_stage "$STAGE_TARGET" "$STAGE_DIR" "$SELF_PATH" || return 1
+            uploaded_self=$STAGE_DIR/$(basename "$SELF_PATH")
+            remote_cmd="set -eu; cd $(shell_quote "$STAGE_DIR"); sh $(shell_quote "./$(basename "$SELF_PATH")") -v -i -m $(shell_quote "$manifest_base") $(shell_quote "$archive_base"); rm -f $(shell_quote "./$(basename "$SELF_PATH")")"
+            ssh_run "$STAGE_TARGET" "$remote_cmd" || return 1
+        fi
+    fi
+
+    network_stage_publish "$STAGE_TARGET" "$STAGE_ROOT" "$STAGE_DIR" "$STAGE_BUNDLE" "$STAGE_LOCK" "$NETWORK_ARCHIVE_NAME" || {
+        audit_event push failed "$push_spec"
+        return 1
+    }
+    print_info "Remote publication completed: $push_spec -> $STAGE_BUNDLE"
+    audit_event push success "$push_spec"
+}
+
+network_push_many()
+{
+    push_input=$1
+    remote_count=$(network_count_remotes)
+    [ "$remote_count" -gt 0 ] || { print_error "at least one -R destination is required"; return 2; }
+    if [ "$FEATURE_LEVEL" -lt 42 ] && [ "$remote_count" -gt 1 ]; then
+        print_error "multiple destinations require version 4.2"
+        return 2
+    fi
+    push_required=$remote_count
+    [ "$NET_QUORUM" -gt 0 ] && push_required=$NET_QUORUM
+    [ "$push_required" -le "$remote_count" ] || { print_error "quorum exceeds destination count"; return 2; }
+
+    push_success=0
+    make_network_temp_dir || return 1
+    push_remote_list=$NETWORK_TEMP_DIR/push-remotes.$$.list
+    printf '%s
+' "$REMOTE_DESTINATIONS" >"$push_remote_list"
+    while IFS= read -r push_spec; do
+        if network_push_one "$push_spec" "$push_input"; then push_success=$((push_success + 1)); fi
+    done <"$push_remote_list"
+    print_info "Successful remote destinations: $push_success/$remote_count (required: $push_required)"
+    [ "$push_success" -ge "$push_required" ]
+}
+
+network_pull()
+{
+    pull_spec=$1
+    parse_remote_spec "$pull_spec" || return
+    pull_target=$REMOTE_TARGET
+    pull_remote_input=$REMOTE_PATH
+    pull_destination=${DESTINATION:-.}
+    mkdir -p "$pull_destination"
+    pull_destination=$(cd "$pull_destination" 2>/dev/null && pwd -P) || return 1
+    make_network_temp_dir || return 1
+    pull_stage=$pull_destination/.zstd-splitter.incoming
+    mkdir -p "$pull_stage"
+
+    if detect_engine_from_part "$pull_remote_input" >/dev/null 2>&1; then
+        pull_remote_prefix=${pull_remote_input%??????}
+        pull_remote_archive=${pull_remote_prefix%.part.}
+        pull_remote_manifest=$pull_remote_archive.manifest.sha256
+        pull_manifest_local=$pull_stage/$(basename "$pull_remote_manifest").partial
+        network_retry network_get_one "$pull_target" "$pull_remote_manifest" "$pull_manifest_local" || return 1
+        pull_manifest_final=${pull_manifest_local%.partial}
+        mv -f "$pull_manifest_local" "$pull_manifest_final"
+        make_work_dir "$pull_destination"
+        validate_manifest_structure "$pull_manifest_final" || return 1
+        rm -rf "$WORK_DIR"; WORK_DIR=
+        pull_local_prefix=$pull_stage/$(basename "$pull_remote_prefix")
+        pull_first=
+        awk -F '\t' '$1 == "part" { print $2 }' "$pull_manifest_final" >"$NETWORK_TEMP_DIR/pull-suffixes.$$.list"
+        while IFS= read -r pull_suffix; do
+            pull_remote_file=$pull_remote_prefix$pull_suffix
+            pull_local_partial=$pull_local_prefix$pull_suffix.partial
+            network_retry network_get_one "$pull_target" "$pull_remote_file" "$pull_local_partial" || return 1
+            pull_local_final=${pull_local_partial%.partial}
+            mv -f "$pull_local_partial" "$pull_local_final"
+            [ -n "$pull_first" ] || pull_first=$pull_local_final
+        done <"$NETWORK_TEMP_DIR/pull-suffixes.$$.list"
+        mv -f "$pull_manifest_final" "$pull_destination/$(basename "$pull_manifest_final")"
+        for pull_file in "$pull_local_prefix"??????; do [ -f "$pull_file" ] && mv -f "$pull_file" "$pull_destination/$(basename "$pull_file")"; done
+        pull_first=$pull_destination/$(basename "$pull_first")
+        verify_input "$pull_first" || return 1
+        print_info "Remote part set downloaded and verified in: $pull_destination"
+    else
+        detect_engine_from_archive "$pull_remote_input" >/dev/null 2>&1 || { print_error "unsupported remote input"; return 2; }
+        pull_remote_manifest=$pull_remote_input.manifest.sha256
+        pull_local_archive=$pull_stage/$(basename "$pull_remote_input").partial
+        pull_local_manifest=$pull_stage/$(basename "$pull_remote_manifest").partial
+        network_retry network_get_one "$pull_target" "$pull_remote_input" "$pull_local_archive" || return 1
+        network_retry network_get_one "$pull_target" "$pull_remote_manifest" "$pull_local_manifest" || return 1
+        pull_archive_final=$pull_destination/$(basename "$pull_remote_input")
+        pull_manifest_final=$pull_destination/$(basename "$pull_remote_manifest")
+        mv -f "$pull_local_archive" "$pull_archive_final"
+        mv -f "$pull_local_manifest" "$pull_manifest_final"
+        verify_input "$pull_archive_final" || return 1
+        print_info "Remote archive downloaded and verified: $pull_archive_final"
+    fi
+}
+
+network_print_config()
+{
+    cat <<EOF_NETWORK_CONFIG
+profile=$NET_PROFILE
+transport=$NET_TRANSPORT
+resume=$NET_RESUME
+atomic=$NET_ATOMIC
+remote-verify=$NET_REMOTE_VERIFY
+remote-extract=$NET_REMOTE_EXTRACT
+retry=$NET_RETRY
+retry-delay=$NET_RETRY_DELAY
+retry-backoff=$NET_BACKOFF
+connect-timeout=$NET_CONNECT_TIMEOUT
+server-alive-interval=$NET_KEEPALIVE_INTERVAL
+server-alive-count=$NET_KEEPALIVE_COUNT
+host-key-policy=$NET_HOST_KEY_POLICY
+jobs=$NET_JOBS
+sftp-buffer=$NET_SFTP_BUFFER
+sftp-requests=$NET_SFTP_REQUESTS
+bandwidth=$NET_BANDWIDTH
+stream-block=$NET_STREAM_BLOCK
+mtu-check=$NET_MTU_CHECK
+mtu-required=$NET_MTU_REQUIRED
+tune=$NET_TUNE
+remote-fsync=$NET_REMOTE_FSYNC
+cleanup=$NET_CLEANUP
+quorum=$NET_QUORUM
+retain=$NET_RETAIN
+EOF_NETWORK_CONFIG
+}
+
+network_mtu_diagnostic()
+{
+    mtu_spec=$1
+    parse_remote_spec "$mtu_spec" || return
+    mtu_target=$REMOTE_TARGET
+    mtu_host=${mtu_target##*@}
+    mtu_host=${mtu_host#[}; mtu_host=${mtu_host%]}
+    print_info "MTU diagnostic target: $mtu_host"
+    if command -v ip >/dev/null 2>&1; then
+        print_info "Local route:"
+        ip route get "$mtu_host" 2>/dev/null || print_info "  unavailable"
+    else
+        print_info "Local route: ip command unavailable"
+    fi
+    print_info "Remote interfaces and MTUs:"
+    ssh_run "$mtu_target" "if command -v ip >/dev/null 2>&1; then ip -o link show; else ifconfig 2>/dev/null || :; fi"
+    if [ "$NET_DRY_RUN" != yes ] && [ "$NET_MTU_CHECK" = path ] && command -v ping >/dev/null 2>&1; then
+        mtu_payload=$((NET_MTU_REQUIRED - 28))
+        if ping -c 1 -W 2 -M do -s "$mtu_payload" "$mtu_host" >/dev/null 2>&1; then
+            print_info "Path MTU probe passed for IPv4 payload $mtu_payload (target MTU $NET_MTU_REQUIRED)."
+        else
+            print_info "Path MTU probe did not confirm target MTU $NET_MTU_REQUIRED."
+        fi
+    fi
+}
+
+network_adaptive_recommendation()
+{
+    [ "$NET_TUNE" = off ] && return 0
+    print_info "Adaptive recommendation (non-destructive):"
+    case $NET_PROFILE in
+        jumbo-lan) print_info "  use sftp-buffer=$NET_SFTP_BUFFER, requests=$NET_SFTP_REQUESTS, jobs=$NET_JOBS after the MTU path probe passes" ;;
+        high-latency|wan) print_info "  prioritize in-flight SFTP requests ($NET_SFTP_REQUESTS) and persistent SSH control connections" ;;
+        metered) print_info "  bandwidth is limited to $NET_BANDWIDTH Kbit/s" ;;
+        *) print_info "  current safe profile values are retained; no kernel or interface settings are changed" ;;
+    esac
+}
+
+network_query()
+{
+    query_mode=$1
+    case $query_mode in
+        config) network_print_config; return 0 ;;
+    esac
+    remote_count=$(network_count_remotes)
+    [ "$remote_count" -gt 0 ] || { print_error "query mode $query_mode requires -R"; return 2; }
+    make_network_temp_dir || return 1
+    query_remote_list=$NETWORK_TEMP_DIR/query-remotes.$$.list
+    printf '%s
+' "$REMOTE_DESTINATIONS" >"$query_remote_list"
+    while IFS= read -r query_spec; do
+        parse_remote_spec "$query_spec" || return
+        case $query_mode in
+            network)
+                print_info "SSH connectivity: $REMOTE_TARGET"
+                ssh_run "$REMOTE_TARGET" "printf 'connected\\n'; uname -a 2>/dev/null || :"
+                [ "$FEATURE_LEVEL" -lt 41 ] || network_mtu_diagnostic "$query_spec"
+                network_adaptive_recommendation
+                ;;
+            health)
+                [ "$FEATURE_LEVEL" -ge 42 ] || { print_error "health query requires version 4.2"; return 2; }
+                ssh_run "$REMOTE_TARGET" "set -eu; test -d $(shell_quote "$REMOTE_PATH") || mkdir -p $(shell_quote "$REMOTE_PATH"); command -v sh; command -v tar; command -v sha256sum; df -Pk $(shell_quote "$REMOTE_PATH")"
+                ;;
+            inventory)
+                [ "$FEATURE_LEVEL" -ge 42 ] || { print_error "inventory requires version 4.2"; return 2; }
+                ssh_run "$REMOTE_TARGET" "find $(shell_quote "$REMOTE_PATH") -maxdepth 2 -type f \\( -name '*.manifest.sha256' -o -name '*.part.*' -o -name '*.tar.*' \\) -print 2>/dev/null | sort"
+                ;;
+            gc)
+                [ "$FEATURE_LEVEL" -ge 42 ] || { print_error "gc requires version 4.2"; return 2; }
+                [ "$FORCE" -eq 1 ] || { print_error "gc requires -f"; return 2; }
+                ssh_run "$REMOTE_TARGET" "find $(shell_quote "$REMOTE_PATH/.zstd-splitter.incoming") -mindepth 1 -maxdepth 1 -type d -mtime +$NET_GC_DAYS -print -exec rm -rf {} + 2>/dev/null || :"
+                ;;
+            *) print_error "unknown network query mode: $query_mode"; return 2 ;;
+        esac
+    done <"$query_remote_list"
+}
+
+network_fetch_remote_manifest()
+{
+    fetch_spec=$1
+    parse_remote_spec "$fetch_spec" || return
+    FETCH_TARGET=$REMOTE_TARGET
+    FETCH_PART=$REMOTE_PATH
+    detect_engine_from_part "$FETCH_PART" >/dev/null 2>&1 || {
+        print_error "relay source must identify a split part"
+        return 2
+    }
+    FETCH_PREFIX=${FETCH_PART%??????}
+    FETCH_ARCHIVE=${FETCH_PREFIX%.part.}
+    FETCH_MANIFEST=$FETCH_ARCHIVE.manifest.sha256
+    FETCH_LOCAL_MANIFEST=$NETWORK_TEMP_DIR/relay.manifest.sha256
+    network_retry network_get_one "$FETCH_TARGET" "$FETCH_MANIFEST" "$FETCH_LOCAL_MANIFEST" || return 1
+    make_work_dir "$NETWORK_TEMP_DIR"
+    validate_manifest_structure "$FETCH_LOCAL_MANIFEST" || return 1
+    rm -rf "$WORK_DIR"; WORK_DIR=
+}
+
+network_stream_remote_file()
+{
+    stream_src_target=$1; stream_src_path=$2; stream_dst_target=$3; stream_dst_path=$4
+    if [ "$NET_DRY_RUN" = yes ]; then
+        print_info "[dry-run] relay $(shell_quote "$stream_src_target:$stream_src_path") -> $(shell_quote "$stream_dst_target:$stream_dst_path")"
+        return 0
+    fi
+    make_network_temp_dir || return 1
+    NETWORK_COUNTER=$((NETWORK_COUNTER + 1))
+    stream_fifo=$NETWORK_TEMP_DIR/relay.$$.${NETWORK_COUNTER}.fifo
+    mkfifo "$stream_fifo"
+    ssh_run "$stream_src_target" "cat $(shell_quote "$stream_src_path")" >"$stream_fifo" &
+    stream_src_pid=$!
+    ssh_run "$stream_dst_target" "cat > $(shell_quote "$stream_dst_path")" <"$stream_fifo" &
+    stream_dst_pid=$!
+    stream_status=0
+    wait "$stream_src_pid" || stream_status=1
+    wait "$stream_dst_pid" || stream_status=1
+    rm -f "$stream_fifo"
+    [ "$stream_status" -eq 0 ]
+}
+
+network_relay_one()
+{
+    relay_source=$1; relay_destination=$2
+    network_fetch_remote_manifest "$relay_source" || return 1
+    relay_archive_name=$(basename "$FETCH_ARCHIVE")
+    network_stage_begin "$relay_destination" "$relay_archive_name" || return 1
+    relay_source_dir=$(dirname "$FETCH_PART")
+    relay_selected=
+    awk -F '\t' '$1 == "part" { print $2 "|" $3 "|" $4 }' "$FETCH_LOCAL_MANIFEST" >"$NETWORK_TEMP_DIR/relay-parts.$$.list"
+    while IFS='|' read -r relay_suffix relay_size relay_sha; do
+        relay_name=$(basename "$FETCH_PREFIX")$relay_suffix
+        relay_src_path=$relay_source_dir/$relay_name
+        relay_partial=$STAGE_DIR/$relay_name.partial
+        relay_final=$STAGE_DIR/$relay_name
+        ssh_run "$FETCH_TARGET" "test \"\$(wc -c < $(shell_quote "$relay_src_path") | tr -d ' ')\" = $(shell_quote "$relay_size"); test \"\$(sha256sum $(shell_quote "$relay_src_path") | awk '{print \$1}')\" = $(shell_quote "$relay_sha")" || return 1
+        network_retry network_stream_remote_file "$FETCH_TARGET" "$relay_src_path" "$STAGE_TARGET" "$relay_partial" || return 1
+        network_remote_verify_commit "$STAGE_TARGET" "$relay_partial" "$relay_final" "$relay_size" "$relay_sha" || return 1
+        [ -n "$relay_selected" ] || relay_selected=$relay_name
+    done <"$NETWORK_TEMP_DIR/relay-parts.$$.list"
+
+    relay_manifest_base=$(basename "$FETCH_MANIFEST")
+    network_upload_file_to_stage "$STAGE_TARGET" "$STAGE_DIR" "$FETCH_LOCAL_MANIFEST" || return 1
+    ssh_run "$STAGE_TARGET" "mv -f $(shell_quote "$STAGE_DIR/$(basename "$FETCH_LOCAL_MANIFEST")") $(shell_quote "$STAGE_DIR/$relay_manifest_base")" || return 1
+    network_remote_helper_action "$STAGE_TARGET" "$STAGE_DIR" "$relay_selected" "$relay_manifest_base" || return 1
+    network_stage_publish "$STAGE_TARGET" "$STAGE_ROOT" "$STAGE_DIR" "$STAGE_BUNDLE" "$STAGE_LOCK" "$relay_archive_name"
+}
+
+network_relay()
+{
+    [ "$FEATURE_LEVEL" -ge 42 ] || { print_error "relay requires version 4.2"; return 2; }
+    remote_count=$(network_count_remotes)
+    [ "$remote_count" -ge 2 ] || { print_error "relay requires a source and at least one destination via -R"; return 2; }
+    relay_source=$(printf '%s\n' "$REMOTE_DESTINATIONS" | awk 'NR == 1 { print; exit }')
+    relay_destinations=$(printf '%s\n' "$REMOTE_DESTINATIONS" | awk 'NR > 1')
+    relay_total=$((remote_count - 1))
+    relay_required=$relay_total
+    [ "$NET_QUORUM" -gt 0 ] && relay_required=$NET_QUORUM
+    relay_success=0
+    relay_destination_list=$NETWORK_TEMP_DIR/relay-destinations.$$.list
+    printf '%s
+' "$relay_destinations" >"$relay_destination_list"
+    while IFS= read -r relay_destination; do
+        network_relay_one "$relay_source" "$relay_destination" && relay_success=$((relay_success + 1))
+    done <"$relay_destination_list"
+    print_info "Successful relay destinations: $relay_success/$relay_total (required: $relay_required)"
+    [ "$relay_success" -ge "$relay_required" ]
+}
+
 interactive_mode()
 {
     if [ ! -t 0 ]; then
@@ -1406,13 +2512,15 @@ main()
     case ${1-} in
         --help) usage; return 0 ;;
         --engines) list_engines; return 0 ;;
+        --version) printf '%s %s
+' "$PROGRAM_NAME" "$PROGRAM_VERSION"; return 0 ;;
     esac
 
     OPTIND=1
-    while getopts ':cjxve:s:l:T:im:d:fEh' option
+    while getopts ':cjxvPGYQ:R:O:F:e:s:l:T:im:d:fEh' option
     do
         case $option in
-            c|j|x|v)
+            c|j|x|v|P|G|Y)
                 if [ -n "$ACTION" ]; then
                     print_error "only one action may be specified"
                     usage >&2
@@ -1423,8 +2531,18 @@ main()
                     j) ACTION=join ;;
                     x) ACTION=extract ;;
                     v) ACTION=verify ;;
+                    P) ACTION=push ;;
+                    G) ACTION=pull ;;
+                    Y) ACTION=relay ;;
                 esac
                 ;;
+            Q)
+                [ -z "$ACTION" ] || { print_error "only one action may be specified"; return 2; }
+                ACTION=query; NETWORK_QUERY_MODE=$OPTARG
+                ;;
+            R) append_line REMOTE_DESTINATIONS "$OPTARG" ;;
+            O) append_line NETWORK_OPTIONS "$OPTARG" ;;
+            F) NETWORK_CONFIG=$OPTARG ;;
             e) ENGINE=$OPTARG; ENGINE_SET=1 ;;
             s) PART_SIZE=$OPTARG ;;
             l) COMPRESSION_LEVEL=$OPTARG ;;
@@ -1442,42 +2560,41 @@ main()
     shift $((OPTIND - 1))
 
     if [ -z "$ACTION" ]; then
-        print_error "one action is required: -c, -j, -x, or -v"
+        print_error "one action is required"
         usage >&2
         return 2
     fi
 
     require_base_commands
-    if [ "$STRICT_INTEGRITY" -eq 1 ]; then
-        require_integrity_commands
+    network_needed=0
+    case $ACTION in push|pull|query|relay) network_needed=1 ;; esac
+    [ -z "$REMOTE_DESTINATIONS" ] || network_needed=1
+    if [ "$network_needed" -eq 1 ]; then
+        network_initialize || return
     fi
+    if [ "$STRICT_INTEGRITY" -eq 1 ]; then require_integrity_commands; fi
 
     case $ACTION in
         compress)
-            if ! ENGINE=$(normalize_engine "$ENGINE"); then
-                print_error "unsupported compression engine"
-                list_engines >&2
-                return 2
-            fi
+            if ! ENGINE=$(normalize_engine "$ENGINE"); then print_error "unsupported compression engine"; list_engines >&2; return 2; fi
             [ -z "$COMPRESSION_LEVEL" ] && COMPRESSION_LEVEL=$(engine_default_level "$ENGINE")
-            if ! validate_engine_level "$ENGINE" "$COMPRESSION_LEVEL"; then
-                print_error "invalid compression level for engine $ENGINE: $COMPRESSION_LEVEL"
-                return 2
-            fi
-            if ! validate_nonnegative_integer "$THREADS"; then
-                print_error "thread count must be a non-negative integer"
-                return 2
-            fi
-            if [ "$THREADS_SET" -eq 1 ] && ! engine_supports_threads "$ENGINE"; then
-                print_error "option -T is not supported by engine $ENGINE"
-                return 2
-            fi
+            validate_engine_level "$ENGINE" "$COMPRESSION_LEVEL" || { print_error "invalid compression level for engine $ENGINE: $COMPRESSION_LEVEL"; return 2; }
+            validate_nonnegative_integer "$THREADS" || { print_error "thread count must be a non-negative integer"; return 2; }
+            if [ "$THREADS_SET" -eq 1 ] && ! engine_supports_threads "$ENGINE"; then print_error "option -T is not supported by engine $ENGINE"; return 2; fi
             [ -z "$PART_SIZE" ] && { print_error "option -s SIZE is required with -c"; return 2; }
             [ -z "$MANIFEST_FILE" ] || { print_error "option -m is not valid with -c"; return 2; }
             [ -z "$DESTINATION" ] || { print_error "option -d is not valid with -c"; return 2; }
             [ "$#" -eq 1 ] || { print_error "compression requires exactly one SOURCE operand"; return 2; }
+            if [ -n "$REMOTE_DESTINATIONS" ] && [ "$STRICT_INTEGRITY" -eq 0 ]; then
+                STRICT_INTEGRITY=1
+                require_integrity_commands
+                print_info "Strict integrity enabled automatically for network publication."
+            fi
             require_engine "$ENGINE" || return 1
-            compress_and_split "$1"
+            compress_and_split "$1" || return
+            if [ -n "$REMOTE_DESTINATIONS" ]; then
+                network_push_many "${LAST_PART_PREFIX}aaaaaa"
+            fi
             ;;
         join)
             [ "$ENGINE_SET" -eq 0 ] || { print_error "option -e is not valid with -j"; return 2; }
@@ -1485,10 +2602,9 @@ main()
             [ -z "$COMPRESSION_LEVEL" ] || { print_error "option -l is not valid with -j"; return 2; }
             [ "$THREADS_SET" -eq 0 ] || { print_error "option -T is not valid with -j"; return 2; }
             [ -z "$DESTINATION" ] || { print_error "option -d is not valid with -j"; return 2; }
+            [ -z "$REMOTE_DESTINATIONS" ] || { print_error "option -R is not valid with -j"; return 2; }
             [ "$#" -eq 1 ] || { print_error "joining requires exactly one PART operand"; return 2; }
-            [ -z "$MANIFEST_FILE" ] || [ "$STRICT_INTEGRITY" -eq 1 ] || {
-                print_error "option -m requires -i"; return 2;
-            }
+            [ -z "$MANIFEST_FILE" ] || [ "$STRICT_INTEGRITY" -eq 1 ] || { print_error "option -m requires -i"; return 2; }
             join_parts "$1"
             ;;
         extract)
@@ -1496,10 +2612,9 @@ main()
             [ -z "$PART_SIZE" ] || { print_error "option -s is not valid with -x"; return 2; }
             [ -z "$COMPRESSION_LEVEL" ] || { print_error "option -l is not valid with -x"; return 2; }
             [ "$THREADS_SET" -eq 0 ] || { print_error "option -T is not valid with -x"; return 2; }
+            [ -z "$REMOTE_DESTINATIONS" ] || { print_error "option -R is not valid with -x"; return 2; }
             [ "$#" -eq 1 ] || { print_error "extraction requires exactly one INPUT operand"; return 2; }
-            [ -z "$MANIFEST_FILE" ] || [ "$STRICT_INTEGRITY" -eq 1 ] || {
-                print_error "option -m requires -i"; return 2;
-            }
+            [ -z "$MANIFEST_FILE" ] || [ "$STRICT_INTEGRITY" -eq 1 ] || { print_error "option -m requires -i"; return 2; }
             extract_archive "$1"
             ;;
         verify)
@@ -1508,11 +2623,31 @@ main()
             [ -z "$COMPRESSION_LEVEL" ] || { print_error "option -l is not valid with -v"; return 2; }
             [ "$THREADS_SET" -eq 0 ] || { print_error "option -T is not valid with -v"; return 2; }
             [ -z "$DESTINATION" ] || { print_error "option -d is not valid with -v"; return 2; }
+            [ -z "$REMOTE_DESTINATIONS" ] || { print_error "option -R is not valid with -v"; return 2; }
             [ "$#" -eq 1 ] || { print_error "verification requires exactly one INPUT operand"; return 2; }
-            [ -z "$MANIFEST_FILE" ] || [ "$STRICT_INTEGRITY" -eq 1 ] || {
-                print_error "option -m requires -i"; return 2;
-            }
+            [ -z "$MANIFEST_FILE" ] || [ "$STRICT_INTEGRITY" -eq 1 ] || { print_error "option -m requires -i"; return 2; }
             verify_input "$1"
+            ;;
+        push)
+            [ "$#" -eq 1 ] || { print_error "push requires exactly one local INPUT operand"; return 2; }
+            [ "$STRICT_INTEGRITY" -eq 1 ] || [ "$NET_ALLOW_UNVERIFIED" = yes ] || { print_error "push requires -i"; return 2; }
+            network_push_many "$1"
+            ;;
+        pull)
+            [ "$#" -eq 0 ] || { print_error "pull takes its remote input from -R and no operand"; return 2; }
+            [ "$STRICT_INTEGRITY" -eq 1 ] || { print_error "pull requires -i"; return 2; }
+            remote_count=$(network_count_remotes)
+            [ "$remote_count" -eq 1 ] || { print_error "pull requires exactly one -R remote input"; return 2; }
+            network_pull "$REMOTE_DESTINATIONS"
+            ;;
+        query)
+            [ "$#" -eq 0 ] || { print_error "network query takes no operand"; return 2; }
+            network_query "$NETWORK_QUERY_MODE"
+            ;;
+        relay)
+            [ "$#" -eq 0 ] || { print_error "relay uses -R specifications and takes no operand"; return 2; }
+            [ "$STRICT_INTEGRITY" -eq 1 ] || { print_error "relay requires -i"; return 2; }
+            network_relay
             ;;
     esac
 }

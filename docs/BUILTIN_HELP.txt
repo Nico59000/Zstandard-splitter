@@ -1,57 +1,84 @@
 Usage:
-  zstd-splitter.sh -c -s SIZE [-e ENGINE] [-l LEVEL] [-T THREADS] [-i] [-f] SOURCE
+  zstd-splitter.sh -c -s SIZE [-e ENGINE] [-l LEVEL] [-T THREADS] [-i] [-f]
+                [-R DESTINATION] [-O NAME=VALUE] SOURCE
   zstd-splitter.sh -j [-i] [-m MANIFEST] [-f] PART
   zstd-splitter.sh -x [-i] [-m MANIFEST] [-d DIRECTORY] [-f] INPUT
   zstd-splitter.sh -v [-i] [-m MANIFEST] INPUT
+  zstd-splitter.sh -P -i -R DESTINATION [-R DESTINATION ...] [-O NAME=VALUE] INPUT
+  zstd-splitter.sh -G -i -R REMOTE_INPUT [-d DIRECTORY] [-O NAME=VALUE]
+  zstd-splitter.sh -Q MODE -R DESTINATION [-O NAME=VALUE]
+  zstd-splitter.sh -Y -i -R REMOTE_SOURCE -R DESTINATION [-R DESTINATION ...]
+                [-O NAME=VALUE]
   zstd-splitter.sh -E
   zstd-splitter.sh -h
   zstd-splitter.sh
 
-Actions:
+Local actions:
   -c            Create a tar archive, compress it, and split it.
   -j            Join archive parts and verify the reconstructed stream.
   -x            Extract an archive, or join parts and then extract them.
   -v            Verify an archive or a set of parts without extracting it.
   -E            List supported compression engines.
 
-Options:
+Network actions:
+  -P            Push a local archive or part set through SSH/SFTP.
+  -G            Pull a remote archive or part set through SSH/SFTP.
+  -Q MODE       Run a network query: network, health, inventory, gc, or config.
+  -Y            Relay a strict part set between SSH hosts without storing its
+                payload locally. Only its manifest is stored temporarily.
+
+Network selection:
+  -R SPEC       Remote specification: [USER@]HOST:/absolute/path.
+                Repeatable for fan-out in version 4.2.
+  -O NAME=VALUE Set a network option. Repeatable.
+  -F FILE       Read network options from FILE (one NAME=VALUE per line).
+
+Common options:
   -e ENGINE     Compression engine used with -c. Default: zstd.
   -s SIZE       Maximum size of each part. Required with -c.
-                SIZE may be a positive byte count or use K, M, G, T, or P,
-                optionally followed by B or iB. Units are powers of 1024.
   -l LEVEL      Compression level. The accepted range depends on ENGINE.
   -T THREADS    Worker threads for zstd, xz, or lzma. Default: 0.
   -i            Enable strict SHA-256 integrity processing.
-                Compression creates NAME.tar.EXT.manifest.sha256.
-                Join, verify, and extract require and validate that manifest.
-  -m MANIFEST   Use an explicit strict-integrity manifest with -j, -x, or -v.
-  -d DIRECTORY  Extraction destination used with -x.
-                Default: NAME.extracted beside the reconstructed archive.
-  -f            Replace existing output without asking for confirmation.
-                With -x, an existing destination is removed and recreated.
+  -m MANIFEST   Use an explicit strict-integrity manifest.
+  -d DIRECTORY  Local extraction or pull destination.
+  -f            Permit replacement and destructive network maintenance.
   -h            Display this help text and exit.
   --            End option processing.
 
-Operands:
-  SOURCE        One file, directory, or symbolic link to archive.
-  PART          Any part named like NAME.tar.EXT.part.aaaaaa.
-  INPUT         A supported compressed tar archive or any one of its parts.
+Important network options:
+  profile=safe|lan|jumbo-lan|wan|high-latency|metered|unstable|archive
+  transport=sftp|ssh-stream       resume=yes|no       atomic=yes|no
+  identity=FILE                   port=PORT           jump=HOST
+  host-key-policy=strict|accept-new
+  known-hosts=FILE                connect-timeout=SECONDS
+  server-alive-interval=SECONDS   server-alive-count=COUNT
+  jobs=NUMBER                     sftp-buffer=BYTES
+  sftp-requests=NUMBER            bandwidth=KBIT/S
+  mtu-check=off|local|remote|path mtu-required=BYTES
+  remote-extract=PATH|auto        remote-fsync=yes|no
+  retry=COUNT                     retry-delay=SECONDS
+  retry-backoff=linear|exponential
+  dry-run=yes|no                  audit-log=FILE
+  quorum=NUMBER                   gc-days=NUMBER
 
-Strict integrity validates three layers:
-  1. A canonical SHA-256 inventory of the source content and tree structure.
-  2. The SHA-256 and byte size of the complete compressed archive.
-  3. The SHA-256 and byte size of every split part.
+Version gates:
+  4.0: transactional SSH/SFTP push, pull, strict remote verification,
+       staging, locking, atomic bundle publication, and remote extraction.
+  4.1: network profiles, SFTP tuning, parallel part transfers, MTU/jumbo-frame
+       diagnostics, connection multiplexing, and adaptive recommendations.
+  4.2: multi-destination fan-out, quorum, relay, inventory, garbage collection,
+       health queries, and JSON Lines audit logging.
 
 Examples:
-  zstd-splitter.sh -c -i -s 500M "/path/My directory"
-  zstd-splitter.sh -c -i -e xz -s 2GiB -l 6 -T 0 source-directory
-  zstd-splitter.sh -j -i "/path/My directory.tar.zst.part.aaaaac"
-  zstd-splitter.sh -x -i -d restored archive.tar.xz.part.aaaaaa
-  zstd-splitter.sh -v -i archive.tar.gz
-  zstd-splitter.sh -E
+  zstd-splitter.sh -c -i -s 1G -R backup@nas:/srv/backups source
+  zstd-splitter.sh -P -i -R backup@nas:/srv/backups archive.tar.zst.part.aaaaaa
+  zstd-splitter.sh -G -i -R backup@nas:/srv/backups/archive.tar.zst.bundle/archive.tar.zst.part.aaaaaa -d restored-parts
+  zstd-splitter.sh -Q network -R backup@nas:/srv/backups -O profile=jumbo-lan
+  zstd-splitter.sh -P -i -R host1:/backup -R host2:/backup -O quorum=1 PART
+  zstd-splitter.sh -Y -i -R source:/backup/a.bundle/a.tar.zst.part.aaaaaa       -R mirror:/backup
 
 Compatibility aliases:
   zstd-splitter.sh --help       is accepted as an alias for -h.
   zstd-splitter.sh --engines    is accepted as an alias for -E.
 
-When run without arguments, the script displays an interactive terminal menu.
+When run without arguments, the script displays the local interactive menu.

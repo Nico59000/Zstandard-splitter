@@ -1,249 +1,52 @@
-.TH ZSTD-SPLITTER 1 "2026-07-25" "zstd-splitter 3.0" "User Commands"
+.TH ZSTD-SPLITTER 1 "2026-07-26" "zstd-splitter 4.0" "User Commands"
 .SH NAME
-zstd-splitter \- compress, split, reconstruct, extract, and SHA-256 verify tar archives
+zstd-splitter \- tar compression, splitting, strict integrity and SSH network Swiss-Knife
 .SH SYNOPSIS
 .B zstd-splitter
-.B -c
-.BI -s " size"
-.RB [ -e " engine" ]
-.RB [ -l " level" ]
-.RB [ -T " threads" ]
-.RB [ -i ]
-.RB [ -f ]
-.I source
-.PP
+.BR -c " ... [" -R " destination] source"
+.br
 .B zstd-splitter
-.B -j
-.RB [ -i ]
-.RB [ -m " manifest" ]
-.RB [ -f ]
-.I part
-.PP
+.BR -P " -i -R destination [" -O " name=value] input"
+.br
 .B zstd-splitter
-.B -x
-.RB [ -i ]
-.RB [ -m " manifest" ]
-.RB [ -d " directory" ]
-.RB [ -f ]
-.I input
-.PP
+.BR -G " -i -R remote-input [" -d " directory]"
+.br
 .B zstd-splitter
-.B -v
-.RB [ -i ]
-.RB [ -m " manifest" ]
-.I input
-.PP
-.B zstd-splitter
-.B -E
-.PP
-.B zstd-splitter
-.B -h
+.BR -Q " mode -R destination"
 .SH DESCRIPTION
-.B zstd-splitter
-creates a tar stream from one source file, directory, or symbolic link,
-compresses the stream with a selected engine, and divides the compressed stream
-into parts. It can reconstruct, verify, and extract those parts.
-.PP
-Zstandard is the default engine. gzip, bzip2, xz, LZMA, lzip, lzop, and LZ4 are
-also supported when their commands are installed.
-.PP
-Version 3.0 adds an optional strict SHA-256 manifest. Strict mode covers the
-source content and tree structure, the complete compressed archive, and every
-split part. It also validates the restored source tree after extraction.
-.SH ACTIONS
+Version 4.0 is a cumulative release of the 4.x Network Swiss-Knife. Local archive operations remain compatible with version 3. Network transfers use SSH and SFTP, strict SHA-256 manifests, remote staging, per-archive locks and atomic bundle publication.
+.SH NETWORK OPTIONS
 .TP
-.B -c
-Create, compress, and split one source operand.
+.BI -R " spec"
+Remote specification in the form [user@]host:/absolute/path.
 .TP
-.B -j
-Join all parts belonging to the selected part and publish the complete archive.
+.BI -O " name=value"
+Set a network option. May be repeated.
 .TP
-.B -x
-Extract a complete archive. If the operand is a part, reconstruct and verify the
-archive before extraction.
+.BI -F " file"
+Read network options from a configuration file.
 .TP
-.B -v
-Verify a complete archive or part set without extracting it.
+.B -P
+Push a local strict archive or part set.
 .TP
-.B -E
-List supported engines, extensions, levels, and thread support.
+.B -G
+Pull and verify a remote archive or part set.
 .TP
-.B -h
-Display built-in help.
-.SH OPTIONS
+.BI -Q " mode"
+Run network, health, inventory, gc or config query. Availability depends on the release version.
 .TP
-.BI -e " engine"
-Select zstd, gzip, bzip2, xz, lzma, lzip, lzop, or lz4 for compression.
-Aliases zst, gz, bz2, and lzo are accepted.
-.TP
-.BI -s " size"
-Maximum part size. Required with
-.BR -c .
-An integer may be followed by K, M, G, T, or P and optional B or iB. Units are
-powers of 1024.
-.TP
-.BI -l " level"
-Compression level. The valid range depends on the engine.
-.TP
-.BI -T " threads"
-Worker threads for zstd, xz, or lzma. Zero requests automatic selection.
-.TP
-.B -i
-Enable strict SHA-256 integrity processing. Compression writes a sidecar
-manifest. Join, verify, and extract require and validate it.
-.TP
-.BI -m " manifest"
-Use an explicit strict-integrity manifest with
-.BR -j ,
-.BR -x ,
-or
-.BR -v .
-This option requires
-.BR -i .
-.TP
-.BI -d " directory"
-Extraction destination for
-.BR -x .
-The default is a directory named
-.I name.extracted
-beside the archive.
-.TP
-.B -f
-Replace output without prompting. With extraction, an existing destination is
-removed recursively and recreated. This option must be used carefully.
-.TP
-.B --
-End option processing.
-.SH STRICT INTEGRITY
-The default manifest name is formed by appending
-.B .manifest.sha256
-to the complete archive name. For example:
-.PP
-.RS
-.nf
-sample.tar.zst.manifest.sha256
-.fi
-.RE
-.PP
-The manifest records three layers.
-.SS Source tree
-Regular files are recorded with content SHA-256 and byte size. Directories are
-recorded so empty directories and tree structure remain significant. Symbolic
-links are recorded with a SHA-256 of their link-target text. Relative pathnames
-are escaped for tab, carriage return, line feed, and percent characters.
-.PP
-The exact source records receive an aggregate SHA-256 named
-.BR source_tree_sha256 .
-During compression, inventories generated before and after archiving must be
-identical or no output is published.
-.SS Compressed archive
-The complete reconstructed compressed byte stream is recorded with SHA-256 and
-byte size. Reconstruction must match both values before publication.
-.SS Split parts
-Each six-letter part suffix is recorded with the part SHA-256 and byte size.
-Strict reconstruction requires the exact number of parts and validates every
-part before concatenation.
-.SH EXTRACTION VALIDATION
-Strict extraction uses a dedicated destination directory. After extraction,
-the program inventories every top-level extracted object, recomputes the
-aggregate source-tree SHA-256, and compares the complete inventory records byte
-for byte with the original manifest.
-.PP
-The source-tree inventory does not cover ownership, permission bits, timestamps,
-ACLs, extended attributes, sparse-file representation, or other filesystem
-metadata. Unsupported special object types are rejected in strict mode.
-.SH MANIFEST TRUST
-SHA-256 manifests detect accidental corruption. They are not signatures. An
-attacker able to replace both the data and its manifest can compute matching
-new hashes. Authenticity requires an externally signed manifest or an
-independently trusted manifest digest.
-.SH OUTPUT FILES
-Parts use names such as:
-.PP
-.RS
-.nf
-name.tar.zst.part.aaaaaa
-name.tar.gz.part.aaaaaa
-name.tar.bz2.part.aaaaaa
-name.tar.xz.part.aaaaaa
-.fi
-.RE
-.PP
-Strict manifests use:
-.PP
-.RS
-.nf
-name.tar.EXT.manifest.sha256
-.fi
-.RE
-.SH ENGINES
-.TS
-l l l l l.
-Engine	Extension	Command	Levels	Threads
-zstd	.tar.zst	zstd	1-22	yes
-gzip	.tar.gz	gzip	1-9	no
-bzip2	.tar.bz2	bzip2	1-9	no
-xz	.tar.xz	xz	0-9	yes
-lzma	.tar.lzma	xz	0-9	yes
-lzip	.tar.lz	lzip	0-9	no
-lzop	.tar.lzo	lzop	1-9	no
-lz4	.tar.lz4	lz4	1-12	no
-.TE
-.SH EXAMPLES
-Strict compression:
-.PP
-.RS
-.nf
-zstd-splitter -c -i -s 500M source-directory
-.fi
-.RE
-.PP
-Strict verification from any part:
-.PP
-.RS
-.nf
-zstd-splitter -v -i source-directory.tar.zst.part.aaaaab
-.fi
-.RE
-.PP
-Strict reconstruction and extraction:
-.PP
-.RS
-.nf
-zstd-splitter -x -i -d restored \\
-  source-directory.tar.zst.part.aaaaab
-.fi
-.RE
-.PP
-Strict xz compression:
-.PP
-.RS
-.nf
-zstd-splitter -c -i -e xz -l 6 -T 0 -s 2GiB source-directory
-.fi
-.RE
-.SH EXIT STATUS
-.TP
-.B 0
-Success, help, engine listing, or an accepted interactive cancellation.
-.TP
-.B 1
-Operational or integrity failure.
-.TP
-.B 2
-Invalid syntax, option, operand, engine, or format.
-.SH DEPENDENCIES
-Base operation requires a POSIX-like shell, tar, split, and the selected
-compressor. Strict mode additionally requires sha256sum, cmp, and readlink.
-.SH PORTABILITY
-The script is written for POSIX /bin/sh and uses getopts. Compression programs,
-sha256sum, and several tar or split behaviors are external extensions rather
-than utilities specified uniformly by POSIX.
+.B -Y
+Relay a strict part set between SSH hosts without local payload storage. Version 4.2 only.
+.SH PROFILES
+Version 4.1 and later provide safe, lan, jumbo-lan, wan, high-latency, metered, unstable and archive profiles. Jumbo-frame diagnostics never modify MTU or kernel settings.
+.SH FILES
+.I /usr/local/bin/zstd-splitter
+.br
+.I /usr/local/share/man/man1/zstd-splitter.1.gz
+.SH SECURITY
+Host-key checking defaults to strict. Network publication should use strict integrity. SHA-256 is an integrity mechanism, not a signature.
 .SH SEE ALSO
+.BR ssh (1),
+.BR sftp (1),
 .BR tar (1),
-.BR split (1),
-.BR sha256sum (1),
-.BR zstd (1),
-.BR gzip (1),
-.BR bzip2 (1),
-.BR xz (1)
+.BR sha256sum (1)
