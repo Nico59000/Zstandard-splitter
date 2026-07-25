@@ -1,6 +1,6 @@
-.TH ZSTD-SPLITTER 1 "2026-07-25" "zstd-splitter 2.0" "User Commands"
+.TH ZSTD-SPLITTER 1 "2026-07-25" "zstd-splitter 3.0" "User Commands"
 .SH NAME
-zstd-splitter \- create, compress, split, join, and verify tar archives
+zstd-splitter \- compress, split, reconstruct, extract, and SHA-256 verify tar archives
 .SH SYNOPSIS
 .B zstd-splitter
 .B -c
@@ -8,170 +8,157 @@ zstd-splitter \- create, compress, split, join, and verify tar archives
 .RB [ -e " engine" ]
 .RB [ -l " level" ]
 .RB [ -T " threads" ]
+.RB [ -i ]
 .RB [ -f ]
 .I source
 .PP
 .B zstd-splitter
 .B -j
+.RB [ -i ]
+.RB [ -m " manifest" ]
 .RB [ -f ]
 .I part
+.PP
+.B zstd-splitter
+.B -x
+.RB [ -i ]
+.RB [ -m " manifest" ]
+.RB [ -d " directory" ]
+.RB [ -f ]
+.I input
+.PP
+.B zstd-splitter
+.B -v
+.RB [ -i ]
+.RB [ -m " manifest" ]
+.I input
 .PP
 .B zstd-splitter
 .B -E
 .PP
 .B zstd-splitter
 .B -h
-.PP
-.B zstd-splitter
 .SH DESCRIPTION
 .B zstd-splitter
-creates a tar stream from one file or directory, compresses that stream with a
-selected compression engine, and divides the compressed stream into numbered
-parts.
-It can later concatenate those parts and verify the reconstructed compressed
-archive before publishing it.
+creates a tar stream from one source file, directory, or symbolic link,
+compresses the stream with a selected engine, and divides the compressed stream
+into parts. It can reconstruct, verify, and extract those parts.
 .PP
-Zstandard is the default compression engine for backward compatibility, but
-.BR gzip (1),
-.BR bzip2 (1),
-.BR xz (1),
-.BR lzip (1),
-.BR lzop (1),
-and
-.BR lz4 (1)
-formats are also supported when their corresponding programs are installed.
+Zstandard is the default engine. gzip, bzip2, xz, LZMA, lzip, lzop, and LZ4 are
+also supported when their commands are installed.
 .PP
-The command-line interface uses POSIX-style short options parsed with
-.BR getopts .
-Options must precede operands.
-The special operand
-.B --
-ends option processing.
-The long forms
-.B --help
-and
-.B --engines
-are convenience aliases and are not POSIX short options.
-.PP
-When invoked without arguments on an interactive terminal, the program displays
-a text menu.
+Version 3.0 adds an optional strict SHA-256 manifest. Strict mode covers the
+source content and tree structure, the complete compressed archive, and every
+split part. It also validates the restored source tree after extraction.
 .SH ACTIONS
 .TP
 .B -c
-Create a tar archive, compress it, and split it into parts.
-Exactly one
-.I source
-operand and the
-.B -s
-option are required.
+Create, compress, and split one source operand.
 .TP
 .B -j
-Join all parts belonging to the selected archive and verify the reconstructed
-compressed stream.
-Exactly one
-.I part
-operand is required.
-The compression engine is inferred from the filename extension.
+Join all parts belonging to the selected part and publish the complete archive.
+.TP
+.B -x
+Extract a complete archive. If the operand is a part, reconstruct and verify the
+archive before extraction.
+.TP
+.B -v
+Verify a complete archive or part set without extracting it.
 .TP
 .B -E
-List supported compression engines, filename extensions, compression-level
-ranges, and thread support.
+List supported engines, extensions, levels, and thread support.
 .TP
 .B -h
-Write the built-in help text to standard output and exit.
+Display built-in help.
 .SH OPTIONS
 .TP
 .BI -e " engine"
-Select the compression engine used by
-.BR -c .
-The default is
-.BR zstd .
-Accepted engine names are:
-.BR zstd ,
-.BR gzip ,
-.BR bzip2 ,
-.BR xz ,
-.BR lzma ,
-.BR lzip ,
-.BR lzop ,
-and
-.BR lz4 .
-The aliases
-.BR zst ,
-.BR gz ,
-.BR bz2 ,
-and
-.B lzo
-are also accepted.
+Select zstd, gzip, bzip2, xz, lzma, lzip, lzop, or lz4 for compression.
+Aliases zst, gz, bz2, and lzo are accepted.
 .TP
 .BI -s " size"
-Set the maximum size of each output part.
-This option is mandatory with
+Maximum part size. Required with
 .BR -c .
-.I size
-may be a positive byte count or an integer followed by
-.BR K ,
-.BR M ,
-.BR G ,
-.BR T ,
-or
-.BR P .
-The suffix may optionally be followed by
-.B B
-or
-.BR iB .
-All units are interpreted as powers of 1024.
-Examples include
-.BR 104857600 ,
-.BR 100M ,
-and
-.BR 2GiB .
+An integer may be followed by K, M, G, T, or P and optional B or iB. Units are
+powers of 1024.
 .TP
 .BI -l " level"
-Set the compression level.
-If omitted, an engine-specific default is used.
-Valid ranges are documented in the
-.B ENGINES
-section.
+Compression level. The valid range depends on the engine.
 .TP
 .BI -T " threads"
-Set the number of compression worker threads for
-.BR zstd ,
-.BR xz ,
+Worker threads for zstd, xz, or lzma. Zero requests automatic selection.
+.TP
+.B -i
+Enable strict SHA-256 integrity processing. Compression writes a sidecar
+manifest. Join, verify, and extract require and validate it.
+.TP
+.BI -m " manifest"
+Use an explicit strict-integrity manifest with
+.BR -j ,
+.BR -x ,
 or
-.BR lzma .
-A value of 0 asks the engine to select automatically.
-This option is rejected for engines without thread support.
+.BR -v .
+This option requires
+.BR -i .
+.TP
+.BI -d " directory"
+Extraction destination for
+.BR -x .
+The default is a directory named
+.I name.extracted
+beside the archive.
 .TP
 .B -f
-Replace existing output without an interactive confirmation prompt.
-When standard input is not a terminal, replacement is refused unless
-.B -f
-is supplied.
+Replace output without prompting. With extraction, an existing destination is
+removed recursively and recreated. This option must be used carefully.
 .TP
 .B --
 End option processing.
-Use this before a source or part pathname beginning with a hyphen.
-.SH OPERANDS
-.TP
-.I source
-The file or directory to place in the tar archive.
-The source is archived using a relative entry name based on its basename.
-Archiving the filesystem root directory directly is refused.
-.TP
-.I part
-Any member of a part set whose name has the form:
+.SH STRICT INTEGRITY
+The default manifest name is formed by appending
+.B .manifest.sha256
+to the complete archive name. For example:
 .PP
 .RS
-.I name.tar.extension.part.aaaaaa
+.nf
+sample.tar.zst.manifest.sha256
+.fi
 .RE
 .PP
-The selected part need not be the first part.
-All matching six-letter suffixes in the same directory are concatenated in
-shell collation order under the C locale.
+The manifest records three layers.
+.SS Source tree
+Regular files are recorded with content SHA-256 and byte size. Directories are
+recorded so empty directories and tree structure remain significant. Symbolic
+links are recorded with a SHA-256 of their link-target text. Relative pathnames
+are escaped for tab, carriage return, line feed, and percent characters.
+.PP
+The exact source records receive an aggregate SHA-256 named
+.BR source_tree_sha256 .
+During compression, inventories generated before and after archiving must be
+identical or no output is published.
+.SS Compressed archive
+The complete reconstructed compressed byte stream is recorded with SHA-256 and
+byte size. Reconstruction must match both values before publication.
+.SS Split parts
+Each six-letter part suffix is recorded with the part SHA-256 and byte size.
+Strict reconstruction requires the exact number of parts and validates every
+part before concatenation.
+.SH EXTRACTION VALIDATION
+Strict extraction uses a dedicated destination directory. After extraction,
+the program inventories every top-level extracted object, recomputes the
+aggregate source-tree SHA-256, and compares the complete inventory records byte
+for byte with the original manifest.
+.PP
+The source-tree inventory does not cover ownership, permission bits, timestamps,
+ACLs, extended attributes, sparse-file representation, or other filesystem
+metadata. Unsupported special object types are rejected in strict mode.
+.SH MANIFEST TRUST
+SHA-256 manifests detect accidental corruption. They are not signatures. An
+attacker able to replace both the data and its manifest can compute matching
+new hashes. Authenticity requires an externally signed manifest or an
+independently trusted manifest digest.
 .SH OUTPUT FILES
-For compression, output parts are created beside the source and use one of the
-following forms:
+Parts use names such as:
 .PP
 .RS
 .nf
@@ -179,22 +166,16 @@ name.tar.zst.part.aaaaaa
 name.tar.gz.part.aaaaaa
 name.tar.bz2.part.aaaaaa
 name.tar.xz.part.aaaaaa
-name.tar.lzma.part.aaaaaa
-name.tar.lz.part.aaaaaa
-name.tar.lzo.part.aaaaaa
-name.tar.lz4.part.aaaaaa
 .fi
 .RE
 .PP
-Subsequent parts use suffixes such as
-.B aaaaab
-and
-.BR aaaaac .
+Strict manifests use:
 .PP
-Joining removes the final
-.B .part.aaaaaa
-component and creates the reconstructed archive beside the parts.
-The existing parts are not deleted.
+.RS
+.nf
+name.tar.EXT.manifest.sha256
+.fi
+.RE
 .SH ENGINES
 .TS
 l l l l l.
@@ -208,177 +189,61 @@ lzip	.tar.lz	lzip	0-9	no
 lzop	.tar.lzo	lzop	1-9	no
 lz4	.tar.lz4	lz4	1-12	no
 .TE
-.PP
-Default compression levels are 3 for zstd, 6 for gzip, 9 for bzip2, 6 for xz
-and lzma, 6 for lzip, 3 for lzop, and 1 for lz4.
-.PP
-An engine is available only when its external command can be found through
-.BR PATH .
-.SH INTERACTIVE MODE
-When no arguments are supplied and standard input is a terminal, the program
-offers the following operations:
+.SH EXAMPLES
+Strict compression:
 .PP
 .RS
 .nf
-1) Compress and split
-2) Join parts
-3) List compression engines
-q) Quit
+zstd-splitter -c -i -s 500M source-directory
 .fi
 .RE
 .PP
-Interactive compression asks for the source, engine, and maximum part size.
-It uses the selected engine's default compression level and automatic thread
-selection where applicable.
-.SH INTEGRITY AND PUBLICATION
-Compression is performed through named pipes in a private temporary directory.
-The program waits for
-.BR tar ,
-the compressor, and
-.B split
-to finish independently.
-It then concatenates the temporary parts and runs the selected engine's archive
-test command before moving the parts into their final locations.
+Strict verification from any part:
 .PP
-During joining, parts are first concatenated into a temporary archive.
-The reconstructed stream is tested with the detected compression engine before
-the final archive replaces any existing output.
+.RS
+.nf
+zstd-splitter -v -i source-directory.tar.zst.part.aaaaab
+.fi
+.RE
 .PP
-These checks verify the compressed stream, not the semantic contents of every
-tar member.
-For stronger archival assurance, maintain an independent cryptographic manifest
-for the source files or the generated parts.
+Strict reconstruction and extraction:
+.PP
+.RS
+.nf
+zstd-splitter -x -i -d restored \\
+  source-directory.tar.zst.part.aaaaab
+.fi
+.RE
+.PP
+Strict xz compression:
+.PP
+.RS
+.nf
+zstd-splitter -c -i -e xz -l 6 -T 0 -s 2GiB source-directory
+.fi
+.RE
 .SH EXIT STATUS
 .TP
 .B 0
-The requested operation completed successfully, help was displayed, an engine
-list was displayed, or the user declined an interactive replacement.
+Success, help, engine listing, or an accepted interactive cancellation.
 .TP
 .B 1
-An operational error occurred, such as a missing dependency, failed compression,
-failed archive verification, inaccessible file, or temporary-file error.
+Operational or integrity failure.
 .TP
 .B 2
-Command-line usage was invalid, an option or operand was rejected, or a menu
-selection was unknown.
-.SH ENVIRONMENT
-.TP
-.B PATH
-Used to locate tar, split, the selected compressor, and the other required
-external utilities.
-.TP
-.B LC_ALL
-The script sets
-.B LC_ALL=C
-internally to make suffix matching and part ordering deterministic.
-.TP
-.B TMPDIR
-Not used.
-Temporary working directories are created beside the output so final publication
-can use same-filesystem renames.
+Invalid syntax, option, operand, engine, or format.
 .SH DEPENDENCIES
-The script requires a POSIX-compatible
-.B /bin/sh
-and the following base utilities:
-.BR tar ,
-.BR split ,
-.BR cat ,
-.BR mkdir ,
-.BR rm ,
-.BR mv ,
-.BR dirname ,
-.BR basename ,
-.BR mkfifo ,
-and
-.BR awk .
-It also requires the command associated with the chosen compression engine.
-.PP
-Although the shell syntax and short-option interface are POSIX-oriented, the
-precise option sets of tar and the compression programs depend on their local
-implementations.
-.SH EXAMPLES
-Create Zstandard-compressed parts of at most 500 MiB:
-.PP
-.RS
-.nf
-zstd-splitter -c -s 500M "/path/My directory"
-.fi
-.RE
-.PP
-Create gzip-compressed 100 MiB parts at level 9:
-.PP
-.RS
-.nf
-zstd-splitter -c -e gzip -s 100M -l 9 disk-image.raw
-.fi
-.RE
-.PP
-Create xz-compressed 2 GiB parts using automatic thread selection:
-.PP
-.RS
-.nf
-zstd-splitter -c -e xz -s 2GiB -l 6 -T 0 source-directory
-.fi
-.RE
-.PP
-Join a gzip archive by naming any one of its parts:
-.PP
-.RS
-.nf
-zstd-splitter -j "/path/My directory.tar.gz.part.aaaaac"
-.fi
-.RE
-.PP
-Allow replacement without prompting:
-.PP
-.RS
-.nf
-zstd-splitter -j -f archive.tar.xz.part.aaaaaa
-.fi
-.RE
-.PP
-Archive a pathname beginning with a hyphen:
-.PP
-.RS
-.nf
-zstd-splitter -c -s 100M -- "-source-file"
-.fi
-.RE
-.SH INSTALLATION
-A system-wide installation may use:
-.PP
-.RS
-.nf
-install -m 0755 zstd-splitter.sh /usr/local/bin/zstd-splitter
-install -m 0644 zstd-splitter.1 /usr/local/share/man/man1/zstd-splitter.1
-mandb
-.fi
-.RE
-.PP
-The
-.B mandb
-step is optional on systems that update the manual-page index automatically.
-A compressed manual page may be installed as
-.B zstd-splitter.1.gz
-instead.
-.SH FILES
-.TP
-.I /usr/local/bin/zstd-splitter
-Suggested system-wide executable location.
-.TP
-.I /usr/local/share/man/man1/zstd-splitter.1
-Suggested local manual-page location.
-.SH NOTES
-The program name is retained for compatibility even though the current version
-supports compression engines other than Zstandard.
+Base operation requires a POSIX-like shell, tar, split, and the selected
+compressor. Strict mode additionally requires sha256sum, cmp, and readlink.
+.SH PORTABILITY
+The script is written for POSIX /bin/sh and uses getopts. Compression programs,
+sha256sum, and several tar or split behaviors are external extensions rather
+than utilities specified uniformly by POSIX.
 .SH SEE ALSO
 .BR tar (1),
 .BR split (1),
+.BR sha256sum (1),
 .BR zstd (1),
 .BR gzip (1),
 .BR bzip2 (1),
-.BR xz (1),
-.BR lzip (1),
-.BR lzop (1),
-.BR lz4 (1),
-.BR sha256sum (1)
+.BR xz (1)

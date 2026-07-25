@@ -1,149 +1,160 @@
-# Zstandard-splitter
-The posix zstd-splitter 
-# zstd-splitter
+# zstd-splitter 3.0
 
-`zstd-splitter` is a POSIX `/bin/sh` utility that creates a tar stream, compresses it with a selectable compression engine, splits the compressed stream into parts, and later joins and verifies those parts.
+`zstd-splitter.sh` creates a tar stream, compresses it with a selectable
+stream-compression engine, divides it into parts, reconstructs those parts,
+and extracts the resulting archive.
 
-Zstandard is the default engine. The script can also use gzip, bzip2, xz, lzma, lzip, lzop, or lz4 when the corresponding external command is installed.
+Version 3.0 adds an optional strict SHA-256 integrity layer covering the source
+content, the complete compressed archive, and every split part.
 
-## Package layout
+Despite its historical name, the program supports Zstandard, gzip, bzip2, xz,
+LZMA, lzip, lzop, and LZ4 when the corresponding external tools are installed.
+Zstandard remains the default.
 
-```text
-zstd-splitter-2.0/
-├── README.md
-├── VERSION
-├── TREE.txt
-├── src/
-│   └── zstd-splitter.sh
-├── man/
-│   └── man1/
-│       ├── zstd-splitter.1
-│       └── zstd-splitter.1.gz
-├── docs/
-│   ├── BUILTIN_HELP.txt
-│   └── ENGINES.txt
-├── examples/
-│   └── commands.md
-├── packaging/
-│   ├── install.sh
-│   └── uninstall.sh
-└── checksums/
-    └── SHA256SUMS
-```
+## Main features
 
-## Requirements
-
-Required base commands:
-
-- a POSIX-compatible `/bin/sh`;
-- `tar`, `split`, `cat`, `mkdir`, `rm`, `mv`, `dirname`, `basename`, `mkfifo`, and `awk`;
-- at least one supported compression command.
-
-Compression commands are external dependencies:
-
-| Engine | Command | Archive extension | Thread option |
-|---|---|---|---|
-| zstd | `zstd` | `.tar.zst` | yes |
-| gzip | `gzip` | `.tar.gz` | no |
-| bzip2 | `bzip2` | `.tar.bz2` | no |
-| xz | `xz` | `.tar.xz` | yes |
-| lzma | `xz` | `.tar.lzma` | yes |
-| lzip | `lzip` | `.tar.lz` | no |
-| lzop | `lzop` | `.tar.lzo` | no |
-| lz4 | `lz4` | `.tar.lz4` | no |
-
-## Quick start
-
-Display the built-in help:
-
-```sh
-sh src/zstd-splitter.sh -h
-```
-
-List compression engines:
-
-```sh
-sh src/zstd-splitter.sh -E
-```
-
-Compress and split with the default Zstandard engine:
-
-```sh
-sh src/zstd-splitter.sh -c -s 500M "/path/My directory"
-```
-
-Compress with xz:
-
-```sh
-sh src/zstd-splitter.sh -c -e xz -s 2GiB -l 6 -T 0 source-directory
-```
-
-Join a part set by naming any one of its parts:
-
-```sh
-sh src/zstd-splitter.sh -j archive.tar.zst.part.aaaaaa
-```
-
-Use `-f` to replace an existing output without an interactive confirmation.
+- POSIX `/bin/sh` implementation and `getopts` command-line processing.
+- Interactive terminal menu when launched without arguments.
+- Streaming `tar -> compressor -> split` processing.
+- Native compressed-stream verification for every supported engine.
+- Optional strict SHA-256 manifest selected with `-i`.
+- Reconstruction from any member of a part set.
+- Direct extraction from either a complete archive or any split part.
+- Post-extraction comparison against the original source inventory.
+- Detection of source changes during strict compression.
 
 ## Installation
-
-Install under `/usr/local` by default:
 
 ```sh
 sudo sh packaging/install.sh
 ```
 
-Choose another prefix:
-
-```sh
-sudo PREFIX=/opt/zstd-splitter sh packaging/install.sh
-```
-
-The default installation creates:
+The default installation paths are:
 
 ```text
 /usr/local/bin/zstd-splitter
 /usr/local/share/man/man1/zstd-splitter.1.gz
 ```
 
-After installation:
+An alternate prefix can be supplied:
+
+```sh
+sudo PREFIX=/opt/zstd-splitter sh packaging/install.sh
+```
+
+## Basic use
+
+Display help and supported engines:
 
 ```sh
 zstd-splitter -h
+zstd-splitter -E
 man zstd-splitter
 ```
 
-If the manual-page database is used on the target system, refresh it with `mandb` when necessary.
-
-## Uninstallation
+Compress and split with Zstandard:
 
 ```sh
-sudo sh packaging/uninstall.sh
+zstd-splitter -c -s 500M "/path/My directory"
 ```
 
-Use the same `PREFIX` value that was used during installation.
+Create strict SHA-256 metadata:
 
-## Documentation
+```sh
+zstd-splitter -c -i -s 500M "/path/My directory"
+```
 
-- `docs/BUILTIN_HELP.txt` is a captured copy of the script's internal help.
-- `docs/ENGINES.txt` is a captured list of supported engines.
-- `man/man1/zstd-splitter.1` is the editable roff manual page.
-- `man/man1/zstd-splitter.1.gz` is ready for installation.
-- `examples/commands.md` contains command-line examples.
+This produces parts such as:
 
-## Integrity
+```text
+My directory.tar.zst.part.aaaaaa
+My directory.tar.zst.part.aaaaab
+```
 
-Verify the package files from the package root:
+and the sidecar manifest:
+
+```text
+My directory.tar.zst.manifest.sha256
+```
+
+Strictly verify a part set without publishing a reconstructed archive:
+
+```sh
+zstd-splitter -v -i "My directory.tar.zst.part.aaaaab"
+```
+
+Strictly reconstruct the complete archive:
+
+```sh
+zstd-splitter -j -i "My directory.tar.zst.part.aaaaab"
+```
+
+Strictly reconstruct, extract, and validate the restored source tree:
+
+```sh
+zstd-splitter -x -i -d restored \
+  "My directory.tar.zst.part.aaaaab"
+```
+
+Extract an already reconstructed archive:
+
+```sh
+zstd-splitter -x -i -d restored "My directory.tar.zst"
+```
+
+## Strict integrity model
+
+The `-i` option creates or requires a sidecar manifest with three layers:
+
+1. **Source tree** — a canonical inventory records each regular file, directory,
+   and symbolic link. Regular-file content is SHA-256 hashed. Symbolic-link
+   targets are SHA-256 hashed. Empty directories and path structure are retained.
+   The inventory itself receives an aggregate SHA-256 digest.
+2. **Compressed archive** — the complete compressed byte stream receives a
+   SHA-256 digest and byte count.
+3. **Split parts** — every part receives its own SHA-256 digest and byte count.
+
+During strict compression the source inventory is generated both before and
+after archiving. If it changed during the operation, the parts and manifest are
+not published.
+
+During strict extraction, the program extracts into a dedicated directory,
+regenerates the canonical inventory, and compares both its aggregate digest and
+its complete records with the original manifest.
+
+The source-tree digest covers content, object type, symlink target, empty
+directories, and relative paths. It intentionally does **not** claim to cover
+ownership, permissions, timestamps, ACLs, extended attributes, sparse-file
+layout, or filesystem-specific metadata. SHA-256 manifests detect accidental
+corruption; they are not digital signatures and do not authenticate a manifest
+against deliberate replacement.
+
+See [`docs/INTEGRITY-MANIFEST.md`](docs/INTEGRITY-MANIFEST.md) for the format.
+
+## Dependencies
+
+Base operation requires common Unix tools plus `tar` and `split`. Each selected
+compression engine requires its own command.
+
+Strict mode additionally requires:
+
+```text
+sha256sum
+cmp
+readlink
+```
+
+The SHA-256 command name follows the GNU/Coreutils convention. Systems exposing
+SHA-256 under a different utility name need a compatibility wrapper.
+
+## Verification of this package
+
+From the package root:
 
 ```sh
 sha256sum -c checksums/SHA256SUMS
+sh tests/smoke-test.sh
 ```
 
-The checksum list intentionally excludes itself.
-
-## Portability notes
-
-The script uses POSIX shell syntax and `getopts` for short options. Compression programs and several practical utilities are external to POSIX. The convenience aliases `--help` and `--engines`, binary-size suffixes such as `GiB`, and some compressor-specific options are extensions documented by the script and manual page.
-
-MIT License has been assigned in this package. 
+The smoke test runs only when `zstd` and the strict-integrity dependencies are
+available.

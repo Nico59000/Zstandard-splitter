@@ -1,6 +1,8 @@
 Usage:
-  zstd-splitter.sh -c -s SIZE [-e ENGINE] [-l LEVEL] [-T THREADS] [-f] SOURCE
-  zstd-splitter.sh -j [-f] PART
+  zstd-splitter.sh -c -s SIZE [-e ENGINE] [-l LEVEL] [-T THREADS] [-i] [-f] SOURCE
+  zstd-splitter.sh -j [-i] [-m MANIFEST] [-f] PART
+  zstd-splitter.sh -x [-i] [-m MANIFEST] [-d DIRECTORY] [-f] INPUT
+  zstd-splitter.sh -v [-i] [-m MANIFEST] INPUT
   zstd-splitter.sh -E
   zstd-splitter.sh -h
   zstd-splitter.sh
@@ -8,33 +10,44 @@ Usage:
 Actions:
   -c            Create a tar archive, compress it, and split it.
   -j            Join archive parts and verify the reconstructed stream.
+  -x            Extract an archive, or join parts and then extract them.
+  -v            Verify an archive or a set of parts without extracting it.
   -E            List supported compression engines.
 
 Options:
   -e ENGINE     Compression engine used with -c. Default: zstd.
-                Accepted engines: zstd, gzip, bzip2, xz, lzma,
-                lzip, lzop, and lz4.
   -s SIZE       Maximum size of each part. Required with -c.
                 SIZE may be a positive byte count or use K, M, G, T, or P,
                 optionally followed by B or iB. Units are powers of 1024.
   -l LEVEL      Compression level. The accepted range depends on ENGINE.
-                When omitted, the engine-specific default is used.
-  -T THREADS    Worker threads for zstd, xz, or lzma.
-                Default: 0, meaning automatic selection by the engine.
+  -T THREADS    Worker threads for zstd, xz, or lzma. Default: 0.
+  -i            Enable strict SHA-256 integrity processing.
+                Compression creates NAME.tar.EXT.manifest.sha256.
+                Join, verify, and extract require and validate that manifest.
+  -m MANIFEST   Use an explicit strict-integrity manifest with -j, -x, or -v.
+  -d DIRECTORY  Extraction destination used with -x.
+                Default: NAME.extracted beside the reconstructed archive.
   -f            Replace existing output without asking for confirmation.
+                With -x, an existing destination is removed and recreated.
   -h            Display this help text and exit.
   --            End option processing.
 
 Operands:
-  SOURCE        File or directory to archive.
+  SOURCE        One file, directory, or symbolic link to archive.
   PART          Any part named like NAME.tar.EXT.part.aaaaaa.
+  INPUT         A supported compressed tar archive or any one of its parts.
+
+Strict integrity validates three layers:
+  1. A canonical SHA-256 inventory of the source content and tree structure.
+  2. The SHA-256 and byte size of the complete compressed archive.
+  3. The SHA-256 and byte size of every split part.
 
 Examples:
-  zstd-splitter.sh -c -s 500M "/path/My directory"
-  zstd-splitter.sh -c -e gzip -s 100M -l 9 disk-image.raw
-  zstd-splitter.sh -c -e xz -s 2GiB -l 6 -T 0 source-directory
-  zstd-splitter.sh -j "/path/My directory.tar.gz.part.aaaaac"
-  zstd-splitter.sh -j -f archive.tar.xz.part.aaaaaa
+  zstd-splitter.sh -c -i -s 500M "/path/My directory"
+  zstd-splitter.sh -c -i -e xz -s 2GiB -l 6 -T 0 source-directory
+  zstd-splitter.sh -j -i "/path/My directory.tar.zst.part.aaaaac"
+  zstd-splitter.sh -x -i -d restored archive.tar.xz.part.aaaaaa
+  zstd-splitter.sh -v -i archive.tar.gz
   zstd-splitter.sh -E
 
 Compatibility aliases:
