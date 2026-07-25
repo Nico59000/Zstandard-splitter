@@ -144,4 +144,4 @@ The checksum list intentionally excludes itself.
 
 The script uses POSIX shell syntax and `getopts` for short options. Compression programs and several practical utilities are external to POSIX. The convenience aliases `--help` and `--engines`, binary-size suffixes such as `GiB`, and some compressor-specific options are extensions documented by the script and manual page.
 
-No software license has been assigned in this package. Distribution and reuse terms must be defined by the copyright holder before public release.
+A MIT Licence has been assigned in this package. Distribution and reuse terms must be defined by the copyright holder before public release.
