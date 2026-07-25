@@ -1,66 +1,56 @@
 # Command examples
 
-The examples assume either installation as `zstd-splitter` or execution from the package root as `sh src/zstd-splitter.sh`.
-
-## Help and engine discovery
+## Non-strict compatibility mode
 
 ```sh
-zstd-splitter -h
-zstd-splitter -E
+zstd-splitter -c -s 500M source-directory
+zstd-splitter -j source-directory.tar.zst.part.aaaaaa
+zstd-splitter -x -d restored source-directory.tar.zst
 ```
 
-## Compress and split
-
-Default Zstandard compression:
+## Strict Zstandard workflow
 
 ```sh
-zstd-splitter -c -s 500M "/data/My directory"
+zstd-splitter -c -i -s 500M source-directory
+zstd-splitter -v -i source-directory.tar.zst.part.aaaaab
+zstd-splitter -j -i source-directory.tar.zst.part.aaaaab
+zstd-splitter -x -i -d restored source-directory.tar.zst
 ```
 
-Gzip with compression level 9:
+## Strict extraction directly from parts
 
 ```sh
-zstd-splitter -c -e gzip -s 100M -l 9 disk-image.raw
+zstd-splitter -x -i -d restored \
+  source-directory.tar.zst.part.aaaaab
 ```
 
-Xz with automatic worker selection:
+The selected part does not need to be the first part.
+
+## Other compression engines
 
 ```sh
-zstd-splitter -c -e xz -s 2GiB -l 6 -T 0 source-directory
+zstd-splitter -c -i -e gzip  -l 9 -s 100M source-directory
+zstd-splitter -c -i -e bzip2 -l 9 -s 100M source-directory
+zstd-splitter -c -i -e xz    -l 6 -T 0 -s 1GiB source-directory
+zstd-splitter -c -i -e lzma  -l 6 -T 0 -s 1GiB source-directory
+zstd-splitter -c -i -e lzip  -l 6 -s 100M source-directory
+zstd-splitter -c -i -e lzop  -l 3 -s 100M source-directory
+zstd-splitter -c -i -e lz4   -l 1 -s 100M source-directory
 ```
 
-Force replacement of an existing part set:
+## Explicit manifest path
 
 ```sh
-zstd-splitter -c -f -s 500M source-directory
+zstd-splitter -v -i -m /trusted/manifests/archive.manifest.sha256 \
+  archive.tar.zst.part.aaaaaa
 ```
 
-Protect a source pathname beginning with a hyphen:
+## Replace existing outputs
 
 ```sh
-zstd-splitter -c -s 100M -- "-source-file"
+zstd-splitter -j -i -f archive.tar.zst.part.aaaaaa
+zstd-splitter -x -i -f -d restored archive.tar.zst
 ```
 
-## Join and verify
-
-Any member of a part set may be supplied:
-
-```sh
-zstd-splitter -j archive.tar.zst.part.aaaaac
-zstd-splitter -j archive.tar.gz.part.aaaaaa
-zstd-splitter -j archive.tar.xz.part.aaaaab
-```
-
-Force replacement of an existing reconstructed archive:
-
-```sh
-zstd-splitter -j -f archive.tar.zst.part.aaaaaa
-```
-
-## Interactive mode
-
-Run without arguments:
-
-```sh
-zstd-splitter
-```
+With extraction, `-f` removes and recreates the destination directory. Review
+the destination carefully before using this option.

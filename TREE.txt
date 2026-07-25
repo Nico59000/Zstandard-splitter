@@ -1,20 +1,23 @@
-zstd-splitter-2.0/
-|-- README.md
-|-- VERSION
-|-- TREE.txt
-|-- src/
-|   `-- zstd-splitter.sh
-|-- man/
-|   `-- man1/
-|       |-- zstd-splitter.1
-|       `-- zstd-splitter.1.gz
-|-- docs/
-|   |-- BUILTIN_HELP.txt
-|   `-- ENGINES.txt
-|-- examples/
-|   `-- commands.md
-|-- packaging/
-|   |-- install.sh
-|   `-- uninstall.sh
-`-- checksums/
-    `-- SHA256SUMS
+zstd-splitter-3.0/
+├── README.md
+├── CHANGELOG.md
+├── VERSION
+├── TREE.txt
+├── src/
+│   └── zstd-splitter.sh
+├── man/man1/
+│   ├── zstd-splitter.1
+│   └── zstd-splitter.1.gz
+├── docs/
+│   ├── BUILTIN_HELP.txt
+│   ├── ENGINES.txt
+│   └── INTEGRITY-MANIFEST.md
+├── examples/
+│   └── commands.md
+├── packaging/
+│   ├── install.sh
+│   └── uninstall.sh
+├── tests/
+│   └── smoke-test.sh
+└── checksums/
+    └── SHA256SUMS
