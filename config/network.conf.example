@@ -1,0 +1,16 @@
+# zstd-splitter Network Swiss-Knife configuration
+profile=safe
+host-key-policy=strict
+resume=yes
+atomic=yes
+remote-fsync=yes
+retry=3
+retry-delay=3
+retry-backoff=linear
+connect-timeout=15
+server-alive-interval=15
+server-alive-count=3
+# identity=/root/.ssh/backup_ed25519
+# jump=admin@bastion.example.net
+# known-hosts=/etc/ssh/ssh_known_hosts
+# audit-log=/var/log/zstd-splitter.jsonl
