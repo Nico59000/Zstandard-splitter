@@ -1,0 +1,44 @@
+Usage:
+  zstd-splitter.sh -c -s SIZE [-e ENGINE] [-l LEVEL] [-T THREADS] [-f] SOURCE
+  zstd-splitter.sh -j [-f] PART
+  zstd-splitter.sh -E
+  zstd-splitter.sh -h
+  zstd-splitter.sh
+
+Actions:
+  -c            Create a tar archive, compress it, and split it.
+  -j            Join archive parts and verify the reconstructed stream.
+  -E            List supported compression engines.
+
+Options:
+  -e ENGINE     Compression engine used with -c. Default: zstd.
+                Accepted engines: zstd, gzip, bzip2, xz, lzma,
+                lzip, lzop, and lz4.
+  -s SIZE       Maximum size of each part. Required with -c.
+                SIZE may be a positive byte count or use K, M, G, T, or P,
+                optionally followed by B or iB. Units are powers of 1024.
+  -l LEVEL      Compression level. The accepted range depends on ENGINE.
+                When omitted, the engine-specific default is used.
+  -T THREADS    Worker threads for zstd, xz, or lzma.
+                Default: 0, meaning automatic selection by the engine.
+  -f            Replace existing output without asking for confirmation.
+  -h            Display this help text and exit.
+  --            End option processing.
+
+Operands:
+  SOURCE        File or directory to archive.
+  PART          Any part named like NAME.tar.EXT.part.aaaaaa.
+
+Examples:
+  zstd-splitter.sh -c -s 500M "/path/My directory"
+  zstd-splitter.sh -c -e gzip -s 100M -l 9 disk-image.raw
+  zstd-splitter.sh -c -e xz -s 2GiB -l 6 -T 0 source-directory
+  zstd-splitter.sh -j "/path/My directory.tar.gz.part.aaaaac"
+  zstd-splitter.sh -j -f archive.tar.xz.part.aaaaaa
+  zstd-splitter.sh -E
+
+Compatibility aliases:
+  zstd-splitter.sh --help       is accepted as an alias for -h.
+  zstd-splitter.sh --engines    is accepted as an alias for -E.
+
+When run without arguments, the script displays an interactive terminal menu.
