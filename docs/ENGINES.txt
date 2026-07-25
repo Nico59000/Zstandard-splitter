@@ -1,0 +1,14 @@
+Supported compression engines:
+  zstd   .tar.zst   command: zstd   levels: 1-22   threads: yes
+  gzip   .tar.gz    command: gzip   levels: 1-9    threads: no
+  bzip2  .tar.bz2   command: bzip2  levels: 1-9    threads: no
+  xz     .tar.xz    command: xz     levels: 0-9    threads: yes
+  lzma   .tar.lzma  command: xz     levels: 0-9    threads: yes
+  lzip   .tar.lz    command: lzip   levels: 0-9    threads: no
+  lzop   .tar.lzo   command: lzop   levels: 1-9    threads: no
+  lz4    .tar.lz4   command: lz4    levels: 1-12   threads: no
+
+Aliases accepted by -e:
+  zst -> zstd, gz -> gzip, bz2 -> bzip2, lzo -> lzop
+
+An engine is usable only when its external command is installed.
