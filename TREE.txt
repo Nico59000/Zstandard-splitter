@@ -1,4 +1,4 @@
-zstd-splitter-4.1/
+zstd-splitter-4.2/
   CHANGELOG.md
   LICENSE
   README.md

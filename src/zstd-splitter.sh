@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# zstd-splitter.sh 4.1
+# zstd-splitter.sh 4.2
 # Create a tar stream, compress it with a selectable engine, split it into
 # parts, join those parts, extract archives, and optionally enforce a strict
 # SHA-256 integrity manifest.
@@ -15,7 +15,7 @@ LC_ALL=C
 export LC_ALL
 
 PROGRAM_NAME=${0##*/}
-PROGRAM_VERSION=4.1
+PROGRAM_VERSION=4.2
 MANIFEST_FORMAT=1
 SUFFIX_LENGTH=6
 ACTION=
@@ -36,7 +36,7 @@ SPLIT_PID=
 EXTRACT_PID=
 LAST_ARCHIVE=
 
-FEATURE_LEVEL=41
+FEATURE_LEVEL=42
 NETWORK_OPTIONS=
 NETWORK_CONFIG=
 REMOTE_DESTINATIONS=
