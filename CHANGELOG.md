@@ -1,11 +1,12 @@
 # Changelog
 
-## 4.0 — 2026-07-26
+## 4.1 — 2026-07-26
 
-- Transactional SSH/SFTP push and pull.
-- Strict remote SHA-256 verification using the same script.
-- Remote staging, per-archive locks and atomic bundle publication.
-- Optional remote extraction after validation.
-- Retry, keepalive, bastion, identity and host-key controls.
+- All 4.0 features.
+- Network profiles: safe, LAN, jumbo-LAN, WAN, high-latency, metered, unstable and archive.
+- Parallel SFTP part transfers.
+- SFTP buffer/request tuning and bandwidth caps.
+- Non-destructive route, MTU and jumbo-frame diagnostics.
+- SSH connection multiplexing and tuning recommendations.
 
 - Corrected recursive strict-inventory path isolation for sibling filesystem objects.

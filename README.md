@@ -1,14 +1,15 @@
-# zstd-splitter 4.0
+# zstd-splitter 4.1
 
-`zstd-splitter` is a POSIX `/bin/sh` tar compression, splitting, integrity and SSH transfer utility. Version 4.0 is the corresponding cumulative milestone in the 4.x Network Swiss-Knife programme.
+`zstd-splitter` is a POSIX `/bin/sh` tar compression, splitting, integrity and SSH transfer utility. Version 4.1 is the corresponding cumulative milestone in the 4.x Network Swiss-Knife programme.
 
 ## Release capabilities
 
-- Transactional SSH/SFTP push and pull.
-- Strict remote SHA-256 verification using the same script.
-- Remote staging, per-archive locks and atomic bundle publication.
-- Optional remote extraction after validation.
-- Retry, keepalive, bastion, identity and host-key controls.
+- All 4.0 features.
+- Network profiles: safe, LAN, jumbo-LAN, WAN, high-latency, metered, unstable and archive.
+- Parallel SFTP part transfers.
+- SFTP buffer/request tuning and bandwidth caps.
+- Non-destructive route, MTU and jumbo-frame diagnostics.
+- SSH connection multiplexing and tuning recommendations.
 
 ## Security model
 
